@@ -1,0 +1,73 @@
+services:
+
+  api-golang:
+    build:
+      dockerfile: "./Dockerfile"
+      context: ./backend
+      target: dev
+    volumes:
+      - ./backend:/app
+    networks:
+      - seer-network
+    ports:
+      - "4000:4000"
+    environment:
+      - PG_DSN=postgres://seer:seerpassword@db:5432/seerdb?sslmode=disable
+    depends_on:
+      - db
+      - valkey
+      - migrate
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4GB
+        reservations:
+          cpus: '2.0'
+          memory: 4GB
+
+  valkey:
+    image: valkey/valkey:9.0-alpine3.22
+    ports:
+      - "6379:6379"
+    volumes:
+      - "./backend/valkey/:/usr/local/etc/valkey/valkey.conf"
+    command: ["valkey-server", "/usr/local/etc/valkey/valkey.conf"]
+    networks:
+      - seer-network
+  
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: seer
+      POSTGRES_PASSWORD: seerpassword
+      POSTGRES_DB: seerdb
+    ports:
+      - "5432:5432"
+    networks:
+      - seer-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U seer -d seerdb"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    
+  migrate:
+    image: migrate/migrate:v4.17.0
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend/migrations:/migrations
+    command: [
+      "-path", "/migrations",
+      "-database", "postgres://seer:seerpassword@db:5432/seerdb?sslmode=disable",
+      "up"
+    ]
+    networks:
+      - seer-network
+
+networks:
+  seer-network:
+    driver: bridge
+

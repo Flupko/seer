@@ -1,0 +1,138 @@
+\documentclass[]{article}
+\usepackage[utf8]{inputenc}
+\usepackage{amssymb,latexsym,amsmath}
+\usepackage[a4paper,top=3cm,bottom=2cm,left=3cm,right=3cm,marginparwidth=1.75cm]{geometry}
+\usepackage{graphicx}
+\usepackage[colorlinks=true, allcolors=blue]{hyperref}
+\begin{document}
+
+\section*{LMSR-based fixed-odds betting model}
+
+\subsection*{Overview}
+This file contains:
+\begin{itemize}
+  \item A detailed mathematical derivation (LaTeX) of the pricing mechanism.
+  \item A Python implementation of an LMSR-style automated market maker that:
+    \begin{itemize}
+      \item returns a \emph{fixed} decimal odd for a requested stake (locked if the user confirms),
+      \item produces odds that decrease smoothly with stake size,
+      \item is path-independent (splitting a bet into sequential sub-bets with no external intervening bets yields the same total payout),
+      \item prevents a single bet from consuming all headroom by applying configurable caps,
+      \item guarantees a minimum house take (fee) $r_{\min}$ (default $2\%$).
+    \end{itemize}
+  \item A small interactive CLI to preview an odd for a given amount and outcome and request confirmation to place the bet.
+  \item A simple test showing path-independence.
+\end{itemize}
+
+\subsection*{Philosophy / summary (short)}
+\begin{itemize}
+  \item We model shares of each outcome using an LMSR cost function $C(\mathbf{q})$.
+  \item The instantaneous "price" for outcome $i$ is
+    \[
+      p_i = \frac{\exp(q_i/b)}{\sum_j \exp(q_j/b)}.
+    \]
+  \item Buying shares costs the LMSR cost increment. We charge a fee $r$ on the stake (at least $r_{\min}$). The fee is immediately taken by the house; the remaining money buys shares.
+  \item Given stake $M$ on outcome $i$, we compute the number of shares $\Delta q$ bought, and the fixed decimal odd
+    \[
+      O = \frac{\Delta q}{M}.
+    \]
+    We \textbf{show} $O$ before the user confirms.
+  \item If they confirm, we deduct the stake (and fee) and update the LMSR state $\mathbf{q} \leftarrow \mathbf{q} + \Delta q$. The odd is then locked for that bet.
+\end{itemize}
+
+\subsection*{Mathematics}
+Let $\mathbf{q} = (q_1, \dots, q_N)$ be the vector of "shares outstanding" for each of the $N$ outcomes.
+Choose a liquidity parameter $b > 0$ and define the LMSR cost function
+\[
+C(\mathbf{q}) = b \ln\left(\sum_{j=1}^N e^{q_j / b}\right).
+\]
+
+The instantaneous market price (marginal price per share) for outcome $i$ is
+\[
+p_i(\mathbf{q}) = \frac{\partial C}{\partial q_i} = \frac{e^{q_i / b}}{\sum_{j=1}^N e^{q_j / b}}.
+\]
+
+If a trader buys $\Delta q > 0$ shares of outcome $i$, the cost equals
+\[
+\Delta C = C(q_1,\dots,q_i+\Delta q,\dots,q_N) - C(\mathbf{q})
+= b\ln\left(1 + p_i(\mathbf{q})\left(e^{\Delta q / b} - 1\right)\right).
+\]
+
+We charge a stake fee $r$ on the submitted stake $M$. The effective stake is
+\[
+M_{\text{eff}} = M (1 - r).
+\]
+
+Solving $M_{\text{eff}} = \Delta C$ for $\Delta q$:
+\[
+e^{\Delta q / b} = 1 + \frac{e^{M_{\text{eff}} / b} - 1}{p_i(\mathbf{q})},
+\]
+so
+\[
+\boxed{\Delta q = b \ln\left(1 + \frac{e^{M_{\text{eff}} / b} - 1}{p_i(\mathbf{q})}\right)}.
+\]
+
+Each share pays \$1 if outcome $i$ occurs, so the payoff if the outcome happens is $\Delta q$. The decimal odd $O$ offered for stake $M$ is
+\[
+\boxed{O = \frac{\Delta q}{M}}.
+\]
+
+\paragraph{Notes / properties.}
+\begin{itemize}
+  \item For small $M$ ($M_{\text{eff}}/b \ll 1$),
+    \[
+    \Delta q \approx \frac{M_{\text{eff}}}{p_i(\mathbf{q})}
+    \quad\Rightarrow\quad
+    O \approx \frac{1-r}{p_i(\mathbf{q})}.
+    \]
+  \item Path independence: LMSR guarantees splitting into sub-bets without external bets yields the same $\Delta q$ and cost.
+  \item No arbitrage on house edge: small-stake implied probabilities
+    \[
+    \frac{1}{O_i} \approx \frac{p_i}{1-r},
+    \]
+    so
+    \[
+    \sum_{i=1}^N \frac{1}{O_i} \approx \frac{1}{1-r} > 1.
+    \]
+  \item Minimum house take: the house always collects $rM$ per bet. Setting $r_{\min}=0.02$ guarantees $\geq 2\%$ house intake.
+\end{itemize}
+
+\subsection*{Risk controls and headroom caps}
+We disallow bets that would push the post-bet price $p_i'$ above $P_{\max}$ (e.g. $0.999$):
+\[
+p_i' = \frac{e^{(q_i + \Delta q)/b}}{e^{(q_i + \Delta q)/b} + \sum_{j\ne i} e^{q_j/b}}.
+\]
+Solving for $\Delta q$:
+\[
+e^{\Delta q / b} = \frac{\sum_{j\ne i} e^{q_j/b}}{e^{q_i/b}} \cdot \frac{p_i'}{1 - p_i'}.
+\]
+From this $\Delta q_{\max}$ we invert the cost formula to obtain $M_{\max}$ (accounting for fee). Bets violating the cap are refused.
+
+\subsection*{Parameters \& tuning}
+\begin{itemize}
+  \item $b$ (liquidity): higher $b$ $\Rightarrow$ less price movement. Suggested range: $0.01H$ to $0.5H$ where $H$ is expected handle.
+  \item $\alpha$ (pseudocounts): initial $q_i = b \ln(B_i + \alpha)$ maps existing pool $B_i$ into prior shares.
+  \item $r_{\min}$: floor house take (default $0.02$). Can be dynamic: $r = \max(r_{\min}, r_{\min} + k \cdot \text{imbalance})$ with imbalance $= \max_i p_i - 1/N$.
+\end{itemize}
+
+\subsection*{Alternative designs (short)}
+\begin{enumerate}
+  \item \textbf{Proportional odds:} $p_i = (B_i + \alpha)/(H + N\alpha)$, odds
+    \[
+    O(S) = \frac{1-r}{p_i}\, g\!\left(\frac{S}{H+S}\right),
+    \]
+    where $g$ is smooth decreasing (e.g. $g(x) = 1/(1+cx)$). Simpler, but not path-independent.
+  \item \textbf{Constant-product AMM:} ($xy=k$). Good for binary markets; LMSR generalizes to $N$ outcomes with bounded loss.
+  \item \textbf{Order-book:} fixed odds per order. Traditional but requires exposure management and hedging.
+\end{enumerate}
+
+\subsection*{Conclusion / recommendation}
+The LMSR + fee approach fits requirements:
+\begin{itemize}
+  \item mathematically clean, path independent, continuous pricing,
+  \item explicit control of liquidity $b$ and house margin $r_{\min}$,
+  \item straightforward implementation and provable properties.
+\end{itemize}
+
+
+\end{document}
