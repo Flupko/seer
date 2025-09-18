@@ -1,10 +1,12 @@
 package ws
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"seer/internal/repos"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
@@ -32,23 +34,23 @@ var (
 
 type Client struct {
 	conn   *websocket.Conn
-	UserID uuid.UUID
+	User   *repos.MinimalUser
 	send   chan []byte
 	hub    *Hub
-	ctx    context.Context
+	Ctx    context.Context
 	cancel context.CancelFunc
 }
 
-func NewClient(conn *websocket.Conn, hub *Hub, userID uuid.UUID) *Client {
+func NewClient(conn *websocket.Conn, hub *Hub, user *repos.MinimalUser) *Client {
 
 	clientCtx, clientCancel := context.WithCancel(hub.ctx)
 
 	c := &Client{
 		conn:   conn,
-		UserID: userID,
+		User:   user,
 		send:   make(chan []byte, clientSendBufSize),
 		hub:    hub,
-		ctx:    clientCtx,
+		Ctx:    clientCtx,
 		cancel: clientCancel,
 	}
 
@@ -72,6 +74,31 @@ func (c *Client) Send(payload []byte) {
 	default:
 		c.Disconnect()
 	}
+}
+
+func (c *Client) SendBatchJSON(vals []any) error {
+
+	var b bytes.Buffer
+	for i, v := range vals {
+		enc, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		b.Write(enc)
+		if i < len(vals)-1 {
+			b.WriteByte('\n')
+		}
+	}
+
+	payload := b.Bytes()
+
+	select {
+	case c.send <- payload:
+	default:
+		c.Disconnect()
+	}
+
+	return nil
 }
 
 func (c *Client) Join(roomID string) {
@@ -103,7 +130,6 @@ func (c *Client) readPump(router *SocketRouter) {
 }
 
 func (c *Client) writePump() {
-
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
 		ticker.Stop()
@@ -112,47 +138,36 @@ func (c *Client) writePump() {
 	for {
 		select {
 		case message, ok := <-c.send:
-
 			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
-
 			// Closed by the hub
 			if !ok {
 				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
-
 			w, err := c.conn.NextWriter(websocket.TextMessage)
 			if err != nil {
 				return
 			}
-
 			if _, err := w.Write(message); err != nil {
 				w.Close()
 				return
 			}
-
 			n := len(c.send)
 			for range n {
-
 				msg := <-c.send
-
 				if _, err := w.Write(newline); err != nil {
 					w.Close()
 					return
 				}
-
 				if _, err := w.Write(msg); err != nil {
 					w.Close()
 					return
 				}
 			}
-
 			if err := w.Close(); err != nil {
 				return
 			}
-
 		case <-ticker.C:
-
 			if err := c.conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(writeWait)); err != nil {
 				return
 			}

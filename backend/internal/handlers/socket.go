@@ -2,9 +2,9 @@ package handlers
 
 import (
 	"log"
+	"seer/internal/utils"
 	"seer/internal/ws"
 
-	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/labstack/echo/v4"
 )
@@ -30,7 +30,9 @@ func (h *SocketHandler) ServeWS(c echo.Context) error {
 		return nil
 	}
 
-	client := ws.NewClient(conn, h.hub, uuid.Nil)
+	user := utils.ContextGetUser(c)
+
+	client := ws.NewClient(conn, h.hub, user)
 	h.hub.Register(client)
 	client.Start(h.router)
 

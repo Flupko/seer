@@ -64,10 +64,11 @@ type UserView struct {
 }
 
 type MinimalUser struct {
-	ID      uuid.UUID
-	Role    Role
-	Status  UserStatus
-	Version int64
+	ID       uuid.UUID
+	Username string
+	Role     Role
+	Status   UserStatus
+	Version  int64
 }
 
 var AnonymousUser = &MinimalUser{}

@@ -27,13 +27,13 @@ type StateManager struct {
 }
 
 type MarketUpdate struct {
-	MarketID uuid.UUID `json:"market_id"`
+	MarketID uuid.UUID `json:"marketId"`
 }
 
 const (
 	marketUpdateChannel  = "market:update"
 	marketCacheKeyPrefix = "market_state:"
-	updateTimeout        = 5 * time.Second
+	MarketupdateTimeout  = 5 * time.Second
 	cacheTTL             = 30 // 30 seconds
 )
 
@@ -64,7 +64,7 @@ func NewStateManager(ctx context.Context, rdb *redis.Client, db *pgxpool.Pool, l
 	}
 }
 
-func (sm *StateManager) StartPushing() {
+func (sm *StateManager) Start() {
 	go sm.start()
 }
 
@@ -87,20 +87,23 @@ func (sm *StateManager) start() {
 				return
 			}
 
-			err := sm.updateMarketPricesRedis(msg.Payload)
+			fmt.Println("received market update")
+
+			err := sm.updateMarketPrices(msg.Payload)
 			if err != nil {
 				sm.logger.Error("could not update market prices", "error", err)
 			}
 
 		case <-sm.ctx.Done():
-			sm.logger.Info("market state manager shutting down", "reason", ctx.Err())
+			sm.logger.Info("market state manager shutting down", "reason", sm.ctx.Err())
 			return
 		}
 
 	}
 }
 
-func (sm *StateManager) updateMarketPricesRedis(payload string) error {
+func (sm *StateManager) updateMarketPrices(payload string) error {
+
 	if payload == "" {
 		return errors.New("payload cannot be empty")
 	}
@@ -115,16 +118,10 @@ func (sm *StateManager) updateMarketPricesRedis(payload string) error {
 		return fmt.Errorf("invalid market ID in payload: %s", payload)
 	}
 
-	return sm.UpdateMarketPrices(u.MarketID)
-
-}
-
-func (sm *StateManager) UpdateMarketPrices(marketID uuid.UUID) (returnedErr error) {
-
-	updateCtx, cancel := context.WithTimeout(sm.ctx, updateTimeout)
+	updateCtx, cancel := context.WithTimeout(sm.ctx, MarketupdateTimeout)
 	defer cancel()
 
-	ms, err := sm.retrieveMarketStateDB(updateCtx, marketID)
+	ms, err := sm.retrieveMarketStateDB(updateCtx, u.MarketID)
 	if err != nil {
 		return fmt.Errorf("failed to retrieve market state from db: %w", err)
 	}
@@ -167,10 +164,10 @@ func (sm *StateManager) UpdateMarketPrices(marketID uuid.UUID) (returnedErr erro
 
 	wsBuf, err := json.Marshal(wsMsg)
 	if err != nil {
-		return fmt.Errorf("failed to websocket message: %w", err)
+		return fmt.Errorf("failed to marshal websocket message: %w", err)
 	}
 
-	if err := sm.rdb.Publish(updateCtx, fmt.Sprintf("%s%s%s", ws.RoomPubSubPrefix, wsMarketRoomPrefix, ms.ID), string(wsBuf)).Err(); err != nil {
+	if err := sm.rdb.Publish(updateCtx, fmt.Sprintf("%s%s%s", ws.RoomPubSubPrefix, WsMarketRoomPrefix, ms.ID), string(wsBuf)).Err(); err != nil {
 		return fmt.Errorf("publish prices: %w", err)
 	}
 	return nil
@@ -179,7 +176,7 @@ func (sm *StateManager) UpdateMarketPrices(marketID uuid.UUID) (returnedErr erro
 // Returns (gainCents, oddsPPH, err)
 func (sm *StateManager) GetQuoteForBet(ctx context.Context, betAmountCents int64, marketID uuid.UUID, outcomeID int64) (int64, int64, error) {
 
-	ms, err := sm.getMarketState(ctx, marketID)
+	ms, err := sm.GetMarketState(ctx, marketID)
 
 	if err != nil {
 		return 0, 0, err
@@ -200,7 +197,7 @@ func (sm *StateManager) GetQuoteForBet(ctx context.Context, betAmountCents int64
 	return gainCents, oddPPH, nil
 }
 
-func (sm *StateManager) getMarketState(ctx context.Context, marketID uuid.UUID) (*MarketState, error) {
+func (sm *StateManager) GetMarketState(ctx context.Context, marketID uuid.UUID) (*MarketState, error) {
 
 	if marketID == uuid.Nil {
 		return nil, errors.New("market ID cannot be nil")
@@ -249,7 +246,7 @@ func (sm *StateManager) retrieveMarketStateDB(ctx context.Context, marketID uuid
 	array_agg(o.id ORDER BY o.id) AS outcome_ids
 	FROM markets m
 	JOIN outcomes o ON o.market_id = m.id
-	WHERE o.market_id = $1 AND status = 'opened' AND (close_time IS NULL OR close_time < NOW())
+	WHERE o.market_id = $1 AND status = 'opened' AND (close_time IS NULL OR close_time > NOW())
 	GROUP BY m.id`
 
 	if err := sm.db.QueryRow(ctx, query, marketID).Scan(&ms.ID, &ms.Version, &ms.AlphaPPM, &ms.FeePPM, &ms.QVec, &ms.OutcomeIDs); err != nil {
@@ -263,7 +260,7 @@ func (sm *StateManager) retrieveMarketStateDB(ctx context.Context, marketID uuid
 		return nil, errors.New("inconsistent outcomes for market")
 	}
 
-	oddsPPH, outcomeActive, err := OddsPPH(ms.QVec, ms.AlphaPPM, ms.FeePPM)
+	oddsPPH, outcomeActive, err := OddsDecPPH(ms.QVec, ms.AlphaPPM, ms.FeePPM)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compute odds for market %s: %w", ms.ID, err)
 	}

@@ -9,6 +9,7 @@ import (
 	"os"
 	"runtime"
 	"seer/config"
+	"seer/internal/chat"
 	"seer/internal/geo"
 	"seer/internal/handlers"
 	"seer/internal/market"
@@ -78,18 +79,37 @@ func main() {
 	geoService := geo.NewGeoService(ip2locationDb)
 
 	// Market related
-	transactionManager := market.NewTransactionManager(db)
+	transactionManager := market.NewTransactionManager(rdb, db, logger)
 	marketStateManager := market.NewStateManager(context.TODO(), rdb, db, logger)
-	marketStateManager.StartPushing()
+	marketStateManager.Start()
 	adminManager := market.NewAdminManager(db)
 	betManager := market.NewBetManager(db)
 	queryManager := market.NewQueryManager(db, rdb)
+	betLiveManager := market.NewBetLiveManager(context.TODO(), rdb, db, logger)
+
+	if err = betLiveManager.PrepopulateLatestBets(initCtx); err != nil {
+		logger.Error("failed to prepopulate latest bets", "error", err)
+		os.Exit(1)
+	}
+
+	if err = betLiveManager.PrepopulateHighBets(initCtx); err != nil {
+		logger.Error("failed to prepopulate high bets", "error", err)
+		os.Exit(1)
+	}
+
+	betLiveManager.Start()
+
+	// Chat
+	chatManager := chat.NewChatManager(rdb, db)
 
 	// Initialize sockets
-	marketWsHandler := market.NewWsHandler(marketStateManager, validate)
+	wsHandlers := handlers.NewWsHandler(betLiveManager, marketStateManager, chatManager, validate)
 	hub := ws.NewHub(context.TODO(), rdb)
 	wsRouter := ws.NewSocketRouter(validate)
-	wsRouter.AddRouteHandler("market_subscribe", marketWsHandler.HandleJoinMarketRooms)
+	wsRouter.AddRouteHandler("market:subscribe", wsHandlers.HandleJoinMarketRooms)
+	wsRouter.AddRouteHandler("bets:subscribe", wsHandlers.HandleJoinBetsRoom)
+	wsRouter.AddRouteHandler("chat:global:subscribe", wsHandlers.HandleJoinGlobalChat)
+	wsRouter.AddRouteHandler("chat:global:send", wsHandlers.HandleSendMessage)
 
 	upgrader := &websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -114,11 +134,12 @@ func main() {
 		log.Fatal("Error initializing auth handler:", err)
 	}
 
+	transactionHandler := handlers.NewTransactionHandler(validate, transactionManager)
 	adminHandler := handlers.NewAdminHandler(validate, adminManager)
-	marketHandler := handlers.NewMarketHandler(validate, rdb, marketStateManager, transactionManager, betManager, queryManager)
+	marketHandler := handlers.NewMarketHandler(validate, marketStateManager, betManager, queryManager, betLiveManager)
 
 	// Register routes
-	e.GET("/ws", wstHttpHandler.ServeWS)
+	e.GET("/ws", authMiddleware.Authenticate(wstHttpHandler.ServeWS))
 
 	e.GET("/auth/:provider", authHandler.ProviderLogin)
 	e.GET("/auth/:provider/callback", authHandler.GetAuthCallback)
@@ -126,8 +147,9 @@ func main() {
 	e.POST("/auth/login", authHandler.LoginUserByEmail)
 
 	e.GET("/market/quote", marketHandler.GetQuote)
-	e.POST("/market/bet", authMiddleware.RequireAuthentication(marketHandler.PlaceBet))
+	e.POST("/market/bet", authMiddleware.RequireAuthentication(transactionHandler.PlaceBet))
 	e.GET("/my/bets", authMiddleware.RequireAuthentication(marketHandler.GetBetsUser))
+	e.GET("/bets/latest", authMiddleware.RequireAuthentication(marketHandler.GetLatestBets))
 	e.GET("/market/search", authMiddleware.RequireAuthentication(marketHandler.GetMarketsUser))
 
 	e.POST("/admin/market", authMiddleware.RequireRole(adminHandler.CreateMarket, repos.AdminRole))

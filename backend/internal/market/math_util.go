@@ -130,3 +130,47 @@ func SoftmaxB(q []int64, b *decimal.Big) ([]*decimal.Big, error) {
 	return s, nil
 
 }
+
+func ComputeOddDecPPH(betAmountCents int64, gainCents int64) (int64, error) {
+
+	// odd = (gain / budget), then PPH = floor(odd * 100).
+
+	if betAmountCents <= 0 {
+		return 0, fmt.Errorf("negative bet amount")
+	}
+
+	if gainCents <= 0 {
+		return 0, fmt.Errorf("negative payout")
+	}
+
+	// oddDec = (gain / budget), then PPH = floor(odd * 100).
+	num := decimal.New(gainCents, 0)
+	den := decimal.New(betAmountCents, 0)
+
+	var odd decimal.Big
+	ctx.Quo(&odd, num, den)
+	if err := ctx.Err(); err != nil {
+		return 0, fmt.Errorf("failed to compute betAmount/payout : %w", err)
+	}
+
+	// Multiply by 100 to keep in PPH
+	var scaledOdd decimal.Big
+	ctx.Mul(&scaledOdd, &odd, decimal.New(100, 0))
+	if err := ctx.Err(); err != nil {
+		return 0, fmt.Errorf("failed to scale*100 odd: %w", err)
+	}
+
+	var flooredScaledOdd decimal.Big
+	ctx.Floor(&flooredScaledOdd, &scaledOdd)
+	if err := ctx.Err(); err != nil {
+		return 0, fmt.Errorf("failed to floor scaled odd: %w", err)
+	}
+
+	oddPPH_I, ok := flooredScaledOdd.Int64()
+	if !ok {
+		return 0, fmt.Errorf("error converting odd to int64")
+	}
+
+	return oddPPH_I, nil
+
+}

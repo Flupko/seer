@@ -448,7 +448,7 @@ func PricesDec(q []int64, alphaPPM int64) ([]*decimal.Big, error) {
 }
 
 // Returns (odds, active) in Parts per Hundreds rounded down, ie 2.529 OUTPUTS => 252
-func OddsPPH(q []int64, alphaPPM, feePPM int64) ([]int64, []bool, error) {
+func OddsDecPPH(q []int64, alphaPPM, feePPM int64) ([]int64, []bool, error) {
 
 	if len(q) == 0 {
 		return nil, nil, errors.New("empty q vector")
@@ -588,33 +588,9 @@ func OddAndGainFromBudget(q []int64, alphaPPM int64, feePPM int64, budgetCents i
 
 	gainCents := min(capCents, gainFromBudgetCents)
 
-	// Compute the corresponding odd
-	// odd = (gain / budget), then PPH = floor(odd * 100).
-	num := decimal.New(gainCents, 0)
-	den := decimal.New(budgetCents, 0)
-
-	var odd decimal.Big
-	ctx.Quo(&odd, num, den)
-	if err := ctx.Err(); err != nil {
-		return 0, 0, 0, fmt.Errorf("failed to compute avail/gain : %w", err)
-	}
-
-	// Multiply by 100 to keep in PPH
-	var scaledOdd decimal.Big
-	ctx.Mul(&scaledOdd, &odd, decimal.New(100, 0))
-	if err := ctx.Err(); err != nil {
-		return 0, 0, 0, fmt.Errorf("failed to scale*100 odd: %w", err)
-	}
-
-	var flooredScaledOdd decimal.Big
-	ctx.Floor(&flooredScaledOdd, &scaledOdd)
-	if err := ctx.Err(); err != nil {
-		return 0, 0, 0, fmt.Errorf("failed to floor scaled odd: %w", err)
-	}
-
-	oddPPH_I, ok := flooredScaledOdd.Int64()
-	if !ok {
-		return 0, 0, 0, fmt.Errorf("error converting odd to int64: %w", err)
+	oddPPH_I, err := ComputeOddDecPPH(budgetCents, gainCents)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("error ComputeOddDecPPH: %w", err)
 	}
 
 	return gainCents, feeCents, oddPPH_I, nil

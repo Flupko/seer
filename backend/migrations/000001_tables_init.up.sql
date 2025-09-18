@@ -12,6 +12,7 @@ CREATE TABLE users (
 
     role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
     profile_image_key TEXT,
+    hidden BOOLEAN NOT NULL DEFAULT FALSE,
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     last_login_at TIMESTAMPTZ,
@@ -57,15 +58,18 @@ CREATE TABLE tokens (
     scope TEXT NOT NULL CHECK(scope IN ('authentication', 'email_verification', 'profile_completion', 'password_reset'))
 );
 
+-------------------------------------------------------------------------------------------------------------
+
 CREATE TABLE ledger_accounts (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES users(id), -- null for house's accounts
-    account_type TEXT NOT NULL CHECK (account_type IN ('house', 'user')),
+    account_type TEXT NOT NULL CHECK (account_type IN ('house', 'user', 'liability')),
     balance BIGINT NOT NULL DEFAULT 0,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     currency TEXT NOT NULL CHECK(currency IN ('USDT')),
     version BIGINT NOT NULL DEFAULT 0,
-    CONSTRAINT ledger_accounts_balance_non_negative CHECK(balance >= 0),
+    allow_negative_balance BOOLEAN NOT NULL,
+    allow_positive_balance BOOLEAN NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT user_account_has_user CHECK (
         (account_type = 'house' AND user_id IS NULL) OR 
         (account_type = 'user' AND user_id IS NOT NULL)
@@ -73,6 +77,146 @@ CREATE TABLE ledger_accounts (
 );
 
 CREATE UNIQUE INDEX idx_user_currency_account ON ledger_accounts(user_id, currency) WHERE account_type = 'user';
+
+
+CREATE TABLE ledger_transfers (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    from_account_id UUID NOT NULL REFERENCES ledger_accounts(id),
+    to_account_id UUID NOT NULL REFERENCES ledger_accounts(id),
+    amount_minor BIGINT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    idempotency_key TEXT NOT NULL,
+    metadata JSONB NOT NULL DEFAULT '{}',
+    CONSTRAINT ledger_transfers_integrity CHECK (amount_minor > 0 AND from_account_id != to_account_id),
+    CONSTRAINT ledger_transfers_idempotency_key_unique UNIQUE (idempotency_key)
+);
+
+CREATE INDEX ON ledger_transfers(from_account_id);
+CREATE INDEX ON ledger_transfers(to_account_id);
+CREATE INDEX ON ledger_transfers(created_at);
+
+
+CREATE TABLE ledger_entries (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    account_id UUID NOT NULL REFERENCES ledger_accounts(id),
+    transfer_id UUID NOT NULL REFERENCES ledger_transfers(id),
+    amount_minor BIGINT NOT NULL,
+    account_previous_balance BIGINT NOT NULL,
+    account_current_balance BIGINT NOT NULL,
+    account_version BIGINT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT ledger_entries_balance CHECK (account_current_balance = account_previous_balance + amount_minor)
+);
+
+CREATE INDEX ON ledger_entries(account_id);
+CREATE INDEX ON ledger_entries(transfer_id);
+
+-- Ensure ledger_entries are immutable
+CREATE OR REPLACE FUNCTION ledger_entries_immutable()
+RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+  RAISE EXCEPTION 'ledger_entries are immutable';
+END$$;
+
+CREATE TRIGGER trg_entries_no_update
+BEFORE UPDATE ON ledger_entries
+FOR EACH ROW EXECUTE FUNCTION ledger_entries_immutable();
+
+CREATE TRIGGER trg_entries_no_delete
+BEFORE DELETE ON ledger_entries
+FOR EACH ROW EXECUTE FUNCTION ledger_entries_immutable();
+
+-- Function to make a transfer
+CREATE OR REPLACE FUNCTION ledger_check_account_balance_constraints(account ledger_accounts) RETURNS VOID AS $$
+BEGIN
+    -- If account doesn't allow negative balance and balance is negative, raise an error
+    IF NOT account.allow_negative_balance AND (account.balance < 0) THEN
+        RAISE EXCEPTION 'Account (id=%, type=%) does not allow negative balance', account.id, account.account_type;
+    END IF;
+
+    -- If account doesn't allow positive balance and balance is positive, raise an error
+    IF NOT account.allow_positive_balance AND (account.balance > 0) THEN
+        RAISE EXCEPTION 'Account (id=%, type=%) does not allow positive balance', account.id, account.account_type;
+    END IF;
+END;
+$$ LANGUAGE plpgsql;
+
+
+CREATE OR REPLACE FUNCTION ledger_create_transfer(from_account_id UUID, to_account_id UUID, amount_minor BIGINT, idempotency_key TEXT, metadata JSONB DEFAULT '{}')
+RETURNS UUID AS $$
+DECLARE
+from_account ledger_accounts;
+to_account ledger_accounts;
+transfer_id UUID;
+BEGIN
+
+    -- Preliminary checks
+    IF amount_minor <= 0 THEN
+        RAISE EXCEPTION 'Amount (%) must be positive', amount_minor;
+    END IF;
+
+    IF from_account_id = to_account_id THEN
+        RAISE EXCEPTION 'Cannot transfer to the same account (id=%)', from_account_id;
+    END IF;
+
+    SELECT * INTO from_account FROM ledger_accounts 
+    WHERE id = from_account_id FOR UPDATE;
+    
+    SELECT * INTO to_account FROM ledger_accounts 
+    WHERE id = to_account_id FOR UPDATE;
+
+    IF from_account.currency != to_account.currency THEN
+        RAISE EXCEPTION 'Cannot transfer between different currencies (% and %)', from_account.currency, to_account.currency;
+    END IF;
+
+    -- Beforehand check for balance
+    IF from_account.balance - amount_minor < 0 AND NOT from_account.allow_negative_balance THEN
+        RAISE EXCEPTION 'Insufficient funds or negative balance not allowed';
+    END IF;
+
+    -- Update balances
+    UPDATE ledger_accounts
+    SET balance = balance - amount_minor, version = version + 1
+    WHERE ledger_accounts.id = from_account_id
+    RETURNING * INTO from_account;
+
+    -- Check balance constraints for the source account
+    PERFORM ledger_check_account_balance_constraints(from_account);
+
+    UPDATE ledger_accounts
+    SET balance = balance + amount_minor, version = version + 1
+    WHERE ledger_accounts.id = to_account_id
+    RETURNING * INTO to_account;
+
+    -- Check balance constraints for the destination account
+    PERFORM ledger_check_account_balance_constraints(to_account);
+
+    INSERT INTO ledger_transfers(from_account_id, to_account_id, amount_minor, idempotency_key, metadata)
+    VALUES (from_account_id, to_account_id, amount_minor, idempotency_key, metadata)
+    ON CONFLICT (idempotency_key) DO NOTHING
+    RETURNING ledger_transfers.id INTO transfer_id;
+
+    IF transfer_id IS NULL THEN
+        RAISE EXCEPTION 'Idempotency key already used %s', idempotency_key;
+    END IF;
+
+    -- Create entry for the source account (negative amount)
+    INSERT INTO ledger_entries(account_id, transfer_id, amount_minor, account_previous_balance, account_current_balance, account_version)
+    VALUES (from_account_id, transfer_id, -amount_minor, from_account.balance + amount_minor, from_account.balance, from_account.version);
+
+    -- Create entry for the destination account (positive amount)
+    INSERT INTO ledger_entries(account_id, transfer_id, amount_minor, account_previous_balance, account_current_balance, account_version)
+    VALUES (to_account_id, transfer_id, amount_minor, to_account.balance - amount_minor, to_account.balance, to_account.version);
+
+    RETURN transfer_id;
+
+END;
+$$ LANGUAGE plpgsql;
+
+
+
+-----------------------------------------------------------------------------------------------------------
+
 
 
 CREATE TABLE markets (
@@ -104,16 +248,14 @@ CREATE INDEX idx_markets_volume_24h ON markets (volume_24h DESC);
 
 
 -- Prevent re-opening an already settled market
-CREATE OR REPLACE FUNCTION prevent_reopen_final_status()
-RETURNS TRIGGER 
-LANGUAGE PLPGSQL 
-AS $$
+CREATE OR REPLACE FUNCTION prevent_reopen_final_status() RETURNS TRIGGER AS $$
 BEGIN
   IF OLD.status IN ('resolved','cancelled') AND NEW.status <> OLD.status THEN
     RAISE EXCEPTION 'market % status % is final, cannot change to status %', OLD.id, OLD.status, NEW.status;
   END IF;
   RETURN NEW;
-END; $$;
+END; 
+LANGUAGE PLPGSQL $$;
 
 CREATE TRIGGER trg_markets_final_status
 BEFORE UPDATE ON markets
@@ -187,27 +329,3 @@ CREATE INDEX idx_bets_ledger_account_purchase_time ON bets(ledger_account_id, pu
 CREATE INDEX idx_bets_outcome_purchase_time ON bets(outcome_id, purchase_time DESC);
 
 
-CREATE TABLE ledger_transfers (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    from_account_id UUID NOT NULL REFERENCES ledger_accounts(id),
-    to_account_id UUID NOT NULL REFERENCES ledger_accounts(id),
-    amount_minor BIGINT NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    idempotency_key TEXT NOT NULL,
-    CONSTRAINT ledger_transfers_integrity CHECK (amount_minor > 0 AND from_account_id != to_account_id),
-    CONSTRAINT ledger_transfers_idempotency_key_unique UNIQUE (idempotency_key)
-    );
-
-
-CREATE TABLE ledger_entries (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    account_id UUID NOT NULL REFERENCES ledger_accounts(id),
-    transfer_id UUID NOT NULL REFERENCES ledger_transfers(id),
-    amount_minor BIGINT NOT NULL,
-    account_previous_balance BIGINT NOT NULL,
-    account_current_balance BIGINT NOT NULL,
-    account_version BIGINT NOT NULL,
-    metadata JSONB NOT NULL DEFAULT '{}',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT ledger_entries_balance CHECK (account_current_balance = account_previous_balance + amount_minor)
-    );

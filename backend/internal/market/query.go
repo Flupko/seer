@@ -143,7 +143,7 @@ func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skip
 			qVec[i] = o.Quantity
 		}
 
-		oddsPPH, active, err := OddsPPH(qVec, m.AlphaPPM, m.FeePPM)
+		oddsPPH, active, err := OddsDecPPH(qVec, m.AlphaPPM, m.FeePPM)
 		if err != nil {
 			return nil, fmt.Errorf("failed to compute odds for market %s", m.ID)
 		}

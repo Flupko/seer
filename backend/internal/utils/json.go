@@ -16,9 +16,9 @@ var (
 	ErrInvalidJSON = errors.New("invalid JSON request body")
 )
 
-func BindAndValidate(c echo.Context, dst any, validate *validator.Validate) error {
+func ParseAndValidateJSON(src io.Reader, dst any, validate *validator.Validate) error {
 
-	decoder := json.NewDecoder(c.Request().Body)
+	decoder := json.NewDecoder(src)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(dst); err != nil {
 		return echo.NewHTTPError(http.StatusBadRequest, ErrInvalidJSON.Error())

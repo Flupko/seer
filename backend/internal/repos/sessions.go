@@ -62,9 +62,9 @@ func GenerateSession(UserID uuid.UUID, duration time.Duration, ip string, userAg
 	session := &Session{
 		UserID:        UserID,
 		Hash:          sessionHash[:],
-		CreatedAt:     time.Now(),
-		LastUsedAt:    time.Now(),
-		ExpiresAt:     time.Now().Add(duration),
+		CreatedAt:     time.Now().UTC(),
+		LastUsedAt:    time.Now().UTC(),
+		ExpiresAt:     time.Now().UTC().Add(duration),
 		IPFirst:       sql.NullString{String: ip, Valid: ip != ""},
 		IPLast:        sql.NullString{String: ip, Valid: ip != ""},
 		UserAgent:     sql.NullString{String: userAgent, Valid: userAgent != ""},
@@ -122,13 +122,14 @@ func (r *SessionRepo) GetUserFromPlain(ctx context.Context, plain string, ip str
         SET last_used_at = NOW(), ip_last = $2
         FROM users AS u
         WHERE s.hash = $1 AND s.expires_at > NOW() AND s.revoked_at IS NULL AND u.id = s.user_id
-        RETURNING u.id, u.role, u.status;
+        RETURNING u.id, u.username, u.role, u.status;
     `
 
 	user := &MinimalUser{}
 
 	err := r.db.QueryRow(ctx, query, hash, ip).Scan(
 		&user.ID,
+		&user.Username,
 		&user.Role,
 		&user.Status,
 	)
@@ -152,7 +153,7 @@ func (r *SessionRepo) RevokeSession(ctx context.Context, sessionID uuid.UUID) er
 		WHERE id = $2 AND revoked_at IS NULL
 	`
 
-	cmd, err := r.db.Exec(ctx, query, time.Now(), sessionID)
+	cmd, err := r.db.Exec(ctx, query, time.Now().UTC(), sessionID)
 	if err != nil {
 		return fmt.Errorf("failed to revoke session: %w", err)
 	}

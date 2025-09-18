@@ -2,8 +2,10 @@ package market
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"seer/internal/finance"
 	"slices"
 	"time"
@@ -13,13 +15,16 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/redis/go-redis/v9"
 )
 
 const minBetAmount = 1_00      // 1 USDT
 const maxBetAmount = 10_000_00 // 10k USDT
 
 type TransactionManager struct {
-	db *pgxpool.Pool
+	rdb    *redis.Client
+	db     *pgxpool.Pool
+	logger *slog.Logger
 }
 
 type BetRequest struct {
@@ -34,34 +39,47 @@ type BetRequest struct {
 
 const maxAttempts = 3
 
-func NewTransactionManager(db *pgxpool.Pool) *TransactionManager {
+func NewTransactionManager(rdb *redis.Client, db *pgxpool.Pool, logger *slog.Logger) *TransactionManager {
 	return &TransactionManager{
-		db: db,
+		rdb:    rdb,
+		db:     db,
+		logger: logger,
 	}
 }
 
-func (tm *TransactionManager) AddBet(ctx context.Context, r BetRequest) error {
+func (tm *TransactionManager) AddBet(ctx context.Context, r BetRequest) (*Bet, error) {
 
 	if r.BetAmountCents < minBetAmount || r.BetAmountCents > maxBetAmount {
-		return ErrInvalidBetAmount
+		return nil, ErrInvalidBetAmount
 	}
 
 	if r.QuotedGainCents <= r.BetAmountCents {
-		return errors.New("quoted gain must be > bet amount")
+		return nil, errors.New("quoted gain must be > bet amount")
 	}
 
 	for attempt := range maxAttempts {
 
-		err := tm.addBetOnce(ctx, r)
+		bet, err := tm.addBetOnce(ctx, r)
 		if err == nil {
-			return nil
+			// Push market update to redis
+			go func() {
+				if err := tm.PulishUpdateMarket(r.MarketID); err != nil {
+					tm.logger.Error("failed to publish market update", "error", err)
+				}
+
+				if err := tm.PublishBetUpdate(bet.ID); err != nil {
+					tm.logger.Error("failed to publish bet update", "error", err)
+				}
+
+			}()
+			return bet, nil
 		}
 
 		var pgErr *pgconn.PgError
 		isRetryable := errors.As(err, &pgErr) && (pgErr.Code == pgerrcode.SerializationFailure || pgErr.Code == pgerrcode.DeadlockDetected)
 
 		if !isRetryable {
-			return err
+			return nil, err
 		}
 
 		if attempt < maxAttempts-1 {
@@ -70,18 +88,18 @@ func (tm *TransactionManager) AddBet(ctx context.Context, r BetRequest) error {
 			case <-time.After(time.Duration(50*(attempt+1)) * time.Millisecond):
 			// Context is done, exit early
 			case <-ctx.Done():
-				return ctx.Err()
+				return nil, ctx.Err()
 			}
 			continue
 		}
 
-		return err
+		return nil, err
 	}
 
-	return errors.New("too many serialization retries")
+	return nil, errors.New("too many serialization retries")
 }
 
-func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) error {
+func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) (*Bet, error) {
 
 	// Begin a serializable transaction
 	opts := pgx.TxOptions{
@@ -92,7 +110,7 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) erro
 	tx, err := tm.db.BeginTx(ctx, opts)
 
 	if err != nil {
-		return fmt.Errorf("failed to begin tx: %w", err)
+		return nil, fmt.Errorf("failed to begin tx: %w", err)
 	}
 
 	defer tx.Rollback(ctx)
@@ -100,7 +118,7 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) erro
 	// Retrieve the user's account
 	userLedgerAccountID, err := finance.GetUserAccountForCurrency(ctx, tx, r.UserID, r.Currency)
 	if err != nil {
-		return fmt.Errorf("failed to get account: %w", err)
+		return nil, fmt.Errorf("failed to get account: %w", err)
 	}
 
 	// Retrieve the market's current state -> prices, fee etc
@@ -120,30 +138,30 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) erro
 
 	if err = tx.QueryRow(ctx, query, r.MarketID).Scan(&m.ID, &m.HouseLedgerAccountID, &m.AlphaPPM, &m.FeePPM, &m.Version, &qVec, &outcomesIDs); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return ErrMarketNotFound
+			return nil, ErrMarketNotFound
 		}
-		return fmt.Errorf("failed to query market's current state: %w", err)
+		return nil, fmt.Errorf("failed to query market's current state: %w", err)
 	}
 
 	if len(qVec) != len(outcomesIDs) || len(qVec) == 0 {
-		return errors.New("inconsistent outcomes for market")
+		return nil, errors.New("inconsistent outcomes for market")
 	}
 
 	// Find the index of the outcome in the q vector
 	idx := slices.Index(outcomesIDs, r.OutcomeID)
 	if idx == -1 {
-		return ErrOutcomeNotFound
+		return nil, ErrOutcomeNotFound
 	}
 
 	// Recompute gain in cents for the user
 	// Validate it's equal to the provided BetRequest
 	actualGainCents, feeCents, _, err := OddAndGainFromBudget(qVec, m.AlphaPPM, m.FeePPM, r.BetAmountCents, idx)
 	if err != nil {
-		return fmt.Errorf("failed to recompute actual gain: %w", err)
+		return nil, fmt.Errorf("failed to recompute actual gain: %w", err)
 	}
 
 	if actualGainCents != r.QuotedGainCents {
-		return ErrInvalidQuotedGain
+		return nil, ErrInvalidQuotedGain
 	}
 
 	// Everything is valid, we can start comiting
@@ -151,11 +169,11 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) erro
 	// Make transaction
 	err = finance.TransferMoney(ctx, tx, userLedgerAccountID, m.HouseLedgerAccountID, r.BetAmountCents, r.IdempotencyKey)
 	if err != nil {
-		return fmt.Errorf("failed to transfer: %w", err)
+		return nil, fmt.Errorf("failed to transfer: %w", err)
 	}
 
 	// Commit a bet, verify time with close_time > now()
-	bet := Bet{
+	bet := &Bet{
 		LedgerAccountID:     userLedgerAccountID,
 		OutcomeID:           r.OutcomeID,
 		PayoutCents:         actualGainCents,
@@ -169,35 +187,37 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) erro
 	INSERT INTO bets(ledger_account_id, outcome_id, payout_cents, total_price_paid_cents, fee_paid_cents, fee_ppm, idempotency_key)
 	VALUES($1, $2, $3, $4, $5, $6, $7)
 	ON CONFLICT (idempotency_key) DO NOTHING
+	RETURNING id
 	`
 
-	cmd, err := tx.Exec(ctx, query, bet.LedgerAccountID, bet.OutcomeID, bet.PayoutCents, bet.TotalPricePaidCents, bet.FeePaidCents, bet.FeePPM, bet.IdempotencyKey)
-	if err != nil {
-		return fmt.Errorf("update outcome position: %w", err)
-	}
+	err = tx.QueryRow(ctx, query, bet.LedgerAccountID, bet.OutcomeID, bet.PayoutCents, bet.TotalPricePaidCents, bet.FeePaidCents, bet.FeePPM, bet.IdempotencyKey).Scan(&bet.ID)
 
 	// Already have a bet with this idempotency key
-	if cmd.RowsAffected() == 0 {
-		return ErrBetAlreadyPlaced
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrBetAlreadyPlaced
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert bet: %w", err)
 	}
 
 	// Add the shares to the outcome
 	if _, err := tx.Exec(ctx, `UPDATE outcomes SET quantity = quantity + $1, volume_cents = volume_cents + $2 WHERE id = $3`, actualGainCents, r.BetAmountCents, r.OutcomeID); err != nil {
-		return fmt.Errorf("update outcome position: %w", err)
+		return nil, fmt.Errorf("update outcome position: %w", err)
 	}
 
 	// Update the market's version
-	cmd, err = tx.Exec(ctx, `UPDATE markets SET version = version + 1, volume_cents = volume_cents + $1 WHERE id=$2 AND (close_time IS NULL OR close_time > now())`, r.BetAmountCents, r.MarketID)
+	cmd, err := tx.Exec(ctx, `UPDATE markets SET version = version + 1, volume_cents = volume_cents + $1 WHERE id=$2 AND (close_time IS NULL OR close_time > now())`, r.BetAmountCents, r.MarketID)
 
 	if err != nil {
-		return fmt.Errorf("failed to update market version: %w", err)
+		return nil, fmt.Errorf("failed to update market version: %w", err)
 	}
 
 	if cmd.RowsAffected() == 0 {
-		return ErrMarketNotFound
+		return nil, ErrMarketNotFound
 	}
 
-	return tx.Commit(ctx)
+	return bet, tx.Commit(ctx)
 
 }
 
@@ -389,4 +409,42 @@ func (tm *TransactionManager) CancelMarket(ctx context.Context, marketID uuid.UU
 	}
 
 	return tx.Commit(ctx)
+}
+
+func (tm *TransactionManager) PulishUpdateMarket(marketID uuid.UUID) error {
+
+	updateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	mu := MarketUpdate{
+		MarketID: marketID,
+	}
+
+	buf, err := json.Marshal(mu)
+
+	if err != nil {
+		return fmt.Errorf("failed to marshal market update: %w", err)
+	}
+
+	return tm.rdb.Publish(updateCtx, marketUpdateChannel, string(buf)).Err()
+
+}
+
+func (tm *TransactionManager) PublishBetUpdate(betID uuid.UUID) error {
+
+	updateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	bu := BetUpdate{
+		BetID: betID,
+	}
+
+	buf, err := json.Marshal(bu)
+
+	if err != nil {
+		return fmt.Errorf("failed to marshal bet update: %w", err)
+	}
+
+	return tm.rdb.Publish(updateCtx, betUpdateChannel, string(buf)).Err()
+
 }

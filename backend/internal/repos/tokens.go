@@ -57,7 +57,7 @@ func GenerateToken(userID uuid.UUID, scope TokenScope, duration time.Duration) (
 		UserID:    userID,
 		Scope:     scope,
 		Hash:      tokenHash[:],
-		CreatedAt: time.Now(),
+		CreatedAt: time.Now().UTC(),
 	}
 
 	token.Expiry = token.CreatedAt.Add(duration)
@@ -96,7 +96,7 @@ func (r *TokenRepo) GetUserForToken(ctx context.Context, scope TokenScope, token
 
 	var user MinimalUser
 
-	err := r.db.QueryRow(ctx, query, tokenHash[:], scope, time.Now()).Scan(
+	err := r.db.QueryRow(ctx, query, tokenHash[:], scope, time.Now().UTC()).Scan(
 		&user.ID,
 		&user.Role,
 		&user.Status,

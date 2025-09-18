@@ -245,7 +245,7 @@ func (h *AuthHandler) CompleteProfile(c echo.Context) error {
 	ctx := c.Request().Context()
 
 	u := &usernameReq{}
-	if err := utils.BindAndValidate(c, u, h.validate); err != nil {
+	if err := utils.ParseAndValidateJSON(c.Request().Body, u, h.validate); err != nil {
 		return err
 	}
 
@@ -301,7 +301,7 @@ func (h *AuthHandler) RegisterUserByEmail(c echo.Context) error {
 	ctx := c.Request().Context()
 
 	r := &registerUserReq{}
-	if err := utils.BindAndValidate(c, r, h.validate); err != nil {
+	if err := utils.ParseAndValidateJSON(c.Request().Body, r, h.validate); err != nil {
 		return err
 	}
 
@@ -360,7 +360,7 @@ func (h *AuthHandler) LoginUserByEmail(c echo.Context) error {
 	ctx := c.Request().Context()
 
 	r := &authenticationUserReq{}
-	if err := utils.BindAndValidate(c, r, h.validate); err != nil {
+	if err := utils.ParseAndValidateJSON(c.Request().Body, r, h.validate); err != nil {
 		return err
 	}
 

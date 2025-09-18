@@ -169,25 +169,48 @@ func (sq *BetSearchQuery) Offset() int64 {
 // HOT Types (for cache and WS push)
 
 type MarketState struct {
-	ID            uuid.UUID `json:"market_id"`
-	Version       int64     `json:"market_version"`
-	AlphaPPM      int64     `json:"alpha_ppm"`
-	FeePPM        int64     `json:"fee_ppm"`
-	OutcomeIDs    []int64   `json:"outcome_ids"`
-	QVec          []int64   `json:"q_vec"`
-	OddsPPH       []int64   `json:"odds_pph"`
-	OutcomeActive []bool    `json:"outcome_active"`
-	UpdatedAtUnix int64     `json:"updated_at_unix"`
+	ID            uuid.UUID `json:"marketId"`
+	Version       int64     `json:"marketVersion"`
+	AlphaPPM      int64     `json:"alphaPPM"`
+	FeePPM        int64     `json:"feePPM"`
+	OutcomeIDs    []int64   `json:"outcomeIDs"`
+	QVec          []int64   `json:"qVec"`
+	OddsPPH       []int64   `json:"oddsPPH"`
+	OutcomeActive []bool    `json:"outcomesActive"`
+	UpdatedAtUnix int64     `json:"updateAtUnivex"`
 }
 
 type WSPayloadOutcomeUpdate struct {
 	ID     int64 `json:"id"`
-	OddPPH int64 `json:"odd_pph"`
+	OddPPH int64 `json:"oddPPH"`
 	Active bool  `json:"active"`
 }
 
 type WSPayloadMarketUpdate struct {
-	ID       uuid.UUID `json:"market_id"`
-	Version  int64     `json:"market_version"`
+	ID       uuid.UUID `json:"marketID"`
+	Version  int64     `json:"marketVersion"`
 	Outcomes []WSPayloadOutcomeUpdate
 }
+
+type BetUpdateType string
+
+const (
+	Latest     BetUpdateType = "latest"
+	HighRoller BetUpdateType = "highRoller"
+)
+
+type BetState struct {
+	ID             uuid.UUID `json:"id"`
+	MarketID       uuid.UUID `json:"marketID"`
+	MarketName     string    `json:"marketName"`
+	OutcomeID      int64     `json:"outcomeId"`
+	OutcomeName    string    `json:"outcomeName"`
+	Username       *string   `json:"username"`
+	WagerCents     int64     `json:"wageCents"`
+	OddsDecimalPPH int64     `json:"oddsDecimalPPH"`
+	PlacedAt       time.Time `json:"placedAt"`
+}
+
+const WsMarketRoomPrefix = "market:"
+const WsBetsLatestRoom = "bets:latest"
+const WsBetsHighRoom = "bets:high"
