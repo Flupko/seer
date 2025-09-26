@@ -2,6 +2,8 @@ package market
 
 import (
 	"database/sql"
+	"fmt"
+	"seer/internal/utils"
 	"time"
 
 	"github.com/google/uuid"
@@ -56,14 +58,19 @@ type Outcome struct {
 
 type OutcomeView struct {
 	Outcome
-	Active bool `json:"active"`
-	OddPPH int64
+	Active   bool `json:"active"`
+	PricePPM int64
 }
 
 type MarketView struct {
 	Market
 	Categories []Category
 	Outcomes   []OutcomeView
+}
+
+type MarketSearchResult struct {
+	Markets  []*MarketView
+	Metadata *utils.Metadata
 }
 
 type Bet struct {
@@ -74,7 +81,7 @@ type Bet struct {
 	TotalPricePaidCents int64
 	FeePaidCents        int64
 	FeePPM              int64
-	PurchaseTime        time.Time
+	PlacedAt            time.Time
 	IdempotencyKey      string
 }
 
@@ -100,10 +107,10 @@ const (
 	SortHot        SortMarket = "hot"
 	SortVolume     SortMarket = "volume"
 	SortNewest     SortMarket = "newest"
-	SortEndingSoon SortMarket = "ending_soon"
+	SortEndingSoon SortMarket = "endingSoon"
 )
 
-var sortSafeMap = map[SortMarket]string{
+var marketSortSafeMap = map[SortMarket]string{
 	SortHot:        "volume_24h DESC",
 	SortNewest:     "created_at DESC",
 	SortVolume:     "volume_cents DESC",
@@ -131,7 +138,7 @@ func (sq *SearchQuery) Offset() int64 {
 }
 
 func (sq *SearchQuery) GetOrderBy() string {
-	orderBy, ok := sortSafeMap[sq.Sort]
+	orderBy, ok := marketSortSafeMap[sq.Sort]
 	if !ok {
 		panic("unvalid sort option")
 	}
@@ -154,8 +161,46 @@ type BetSearchQuery struct {
 	UserID   *uuid.UUID
 	MarketID *uuid.UUID
 	Status   *BetStatus
+
+	MinPriceCents *int64
+	MaxPriceCents *int64
+
+	FromTime *time.Time
+	ToTime   *time.Time
+
 	PageSize int64
 	Page     int64
+
+	Sort    SortBet
+	SortDir string
+}
+
+type SortBet string
+
+const (
+	SortPlacedAt SortBet = "placedAt"
+	SortWager    SortBet = "wager"
+	SortPayout   SortBet = "payout"
+)
+
+var betSortSafeMap = map[SortBet]string{
+	SortPlacedAt: "placed_at",
+	SortWager:    "total_price_paid_cents",
+	SortPayout:   "payout_cents",
+}
+
+func (sq *BetSearchQuery) GetOrderBy() string {
+	sortCol, ok := betSortSafeMap[sq.Sort]
+	if !ok {
+		panic("unvalid sort col")
+	}
+
+	if sq.SortDir != "asc" && sq.SortDir != "desc" {
+		panic("unvalid sort dir")
+	}
+
+	return fmt.Sprintf("%s %s", sortCol, sq.SortDir)
+
 }
 
 func (sq *BetSearchQuery) Limit() int64 {
@@ -175,15 +220,15 @@ type MarketState struct {
 	FeePPM        int64     `json:"feePPM"`
 	OutcomeIDs    []int64   `json:"outcomeIDs"`
 	QVec          []int64   `json:"qVec"`
-	OddsPPH       []int64   `json:"oddsPPH"`
+	PricesPPM     []int64   `json:"pricesPPH"`
 	OutcomeActive []bool    `json:"outcomesActive"`
 	UpdatedAtUnix int64     `json:"updateAtUnivex"`
 }
 
 type WSPayloadOutcomeUpdate struct {
-	ID     int64 `json:"id"`
-	OddPPH int64 `json:"oddPPH"`
-	Active bool  `json:"active"`
+	ID      int64 `json:"id"`
+	ProbPPM int64 `json:"probPPM"`
+	Active  bool  `json:"active"`
 }
 
 type WSPayloadMarketUpdate struct {
@@ -200,15 +245,15 @@ const (
 )
 
 type BetState struct {
-	ID             uuid.UUID `json:"id"`
-	MarketID       uuid.UUID `json:"marketID"`
-	MarketName     string    `json:"marketName"`
-	OutcomeID      int64     `json:"outcomeId"`
-	OutcomeName    string    `json:"outcomeName"`
-	Username       *string   `json:"username"`
-	WagerCents     int64     `json:"wageCents"`
-	OddsDecimalPPH int64     `json:"oddsDecimalPPH"`
-	PlacedAt       time.Time `json:"placedAt"`
+	ID          uuid.UUID `json:"id"`
+	MarketID    uuid.UUID `json:"marketID"`
+	MarketName  string    `json:"marketName"`
+	OutcomeID   int64     `json:"outcomeId"`
+	OutcomeName string    `json:"outcomeName"`
+	Username    *string   `json:"username"`
+	WagerCents  int64     `json:"wageCents"`
+	ProbPPM     int64     `json:"ProbPPM"`
+	PlacedAt    time.Time `json:"placedAt"`
 }
 
 const WsMarketRoomPrefix = "market:"

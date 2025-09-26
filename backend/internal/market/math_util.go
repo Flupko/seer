@@ -131,9 +131,7 @@ func SoftmaxB(q []int64, b *decimal.Big) ([]*decimal.Big, error) {
 
 }
 
-func ComputeOddDecPPH(betAmountCents int64, gainCents int64) (int64, error) {
-
-	// odd = (gain / budget), then PPH = floor(odd * 100).
+func ComputePricePPM(betAmountCents int64, gainCents int64) (int64, error) {
 
 	if betAmountCents <= 0 {
 		return 0, fmt.Errorf("negative bet amount")
@@ -143,34 +141,34 @@ func ComputeOddDecPPH(betAmountCents int64, gainCents int64) (int64, error) {
 		return 0, fmt.Errorf("negative payout")
 	}
 
-	// oddDec = (gain / budget), then PPH = floor(odd * 100).
-	num := decimal.New(gainCents, 0)
-	den := decimal.New(betAmountCents, 0)
+	// price = (betAmount / gain), then PPM = floor(price * 10^6)
+	num := decimal.New(betAmountCents, 0)
+	den := decimal.New(gainCents, 0)
 
-	var odd decimal.Big
-	ctx.Quo(&odd, num, den)
+	var p decimal.Big
+	ctx.Quo(&p, num, den)
 	if err := ctx.Err(); err != nil {
-		return 0, fmt.Errorf("failed to compute betAmount/payout : %w", err)
+		return 0, fmt.Errorf("failed to compute gainCents/betAmountCents : %w", err)
 	}
 
-	// Multiply by 100 to keep in PPH
-	var scaledOdd decimal.Big
-	ctx.Mul(&scaledOdd, &odd, decimal.New(100, 0))
+	// Multiply by 10^6 to keep in PPM
+	var scaledP decimal.Big
+	ctx.Mul(&scaledP, &p, decimal.New(1, -6))
 	if err := ctx.Err(); err != nil {
-		return 0, fmt.Errorf("failed to scale*100 odd: %w", err)
+		return 0, fmt.Errorf("failed to scale*10^6 price: %w", err)
 	}
 
-	var flooredScaledOdd decimal.Big
-	ctx.Floor(&flooredScaledOdd, &scaledOdd)
+	var ceiledScaledP decimal.Big
+	ctx.Ceil(&ceiledScaledP, &scaledP)
 	if err := ctx.Err(); err != nil {
-		return 0, fmt.Errorf("failed to floor scaled odd: %w", err)
+		return 0, fmt.Errorf("failed to ceil scaled price: %w", err)
 	}
 
-	oddPPH_I, ok := flooredScaledOdd.Int64()
+	p_PPH_I, ok := ceiledScaledP.Int64()
 	if !ok {
-		return 0, fmt.Errorf("error converting odd to int64")
+		return 0, fmt.Errorf("error converting scaled price to int64")
 	}
 
-	return oddPPH_I, nil
+	return p_PPH_I, nil
 
 }

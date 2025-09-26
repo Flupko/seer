@@ -116,9 +116,25 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) (*Be
 	defer tx.Rollback(ctx)
 
 	// Retrieve the user's account
-	userLedgerAccountID, err := finance.GetUserAccountForCurrency(ctx, tx, r.UserID, r.Currency)
+	userLedgerAccountID, err := finance.GetUserAccountForCurrency(ctx, tx, r.UserID, r.Currency, finance.AccountLiability)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get account: %w", err)
+	}
+
+	query := `
+        SELECT balance
+        FROM ledger_accounts
+        WHERE id = $1
+    `
+
+	var balance int64
+	err = tx.QueryRow(ctx, query, userLedgerAccountID).Scan(&balance)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query user balance: %w", err)
+	}
+
+	if balance < r.BetAmountCents {
+		return nil, finance.ErrInsufficientFunds
 	}
 
 	// Retrieve the market's current state -> prices, fee etc
@@ -127,7 +143,7 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) (*Be
 	var m Market
 	var outcomesIDs, qVec []int64
 
-	query := `
+	query = `
 	SELECT m.id, m.house_ledger_account_id, m.alpha_ppm, m.fee_ppm, m.version,
 	array_agg(o.quantity ORDER BY o.id) AS q_vec,
 	array_agg(o.id ORDER BY o.id) AS outcome_ids
@@ -155,7 +171,7 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) (*Be
 
 	// Recompute gain in cents for the user
 	// Validate it's equal to the provided BetRequest
-	actualGainCents, feeCents, _, err := OddAndGainFromBudget(qVec, m.AlphaPPM, m.FeePPM, r.BetAmountCents, idx)
+	actualGainCents, feeCents, _, err := PriceAndGainFromBudget(qVec, m.AlphaPPM, m.FeePPM, r.BetAmountCents, idx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to recompute actual gain: %w", err)
 	}
@@ -167,7 +183,7 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) (*Be
 	// Everything is valid, we can start comiting
 
 	// Make transaction
-	err = finance.TransferMoney(ctx, tx, userLedgerAccountID, m.HouseLedgerAccountID, r.BetAmountCents, r.IdempotencyKey)
+	_, err = finance.TransferMoney(ctx, tx, userLedgerAccountID, m.HouseLedgerAccountID, r.BetAmountCents, r.IdempotencyKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to transfer: %w", err)
 	}
@@ -279,7 +295,7 @@ func (tm *TransactionManager) SettleMarket(ctx context.Context, marketID uuid.UU
 
 	// Compute the amount to pay to each account
 	query = `
-	SELECT b.ledger_account_id, b.payout_cents	
+	SELECT b.ledger_account_id, SUM(b.payout_cents)	
 	FROM bets b
 	JOIN outcomes o ON b.outcome_id = o.id -- NOT ESSENTIEL, just to mitigate the ability to choose an outcome not tied to the given marketID
 	WHERE o.market_id = $1 AND b.outcome_id = $2
@@ -304,14 +320,14 @@ func (tm *TransactionManager) SettleMarket(ctx context.Context, marketID uuid.UU
 		}
 
 		idemKey := fmt.Sprintf("settle:%s:%s", marketID, ledgerAccountID)
-		err = finance.TransferMoney(ctx, tx, houseAccountID, ledgerAccountID, payoutCents, idemKey)
+		_, err = finance.TransferMoney(ctx, tx, houseAccountID, ledgerAccountID, payoutCents, idemKey)
 		if err != nil {
 			return fmt.Errorf("failed to credit account %s: %w", ledgerAccountID, err)
 		}
 	}
 
 	if rows.Err() != nil {
-		return rows.Err()
+		return fmt.Errorf("error transactions bets rows: %w", rows.Err())
 	}
 
 	query = `UPDATE markets 
@@ -389,14 +405,14 @@ func (tm *TransactionManager) CancelMarket(ctx context.Context, marketID uuid.UU
 		}
 
 		idemKey := fmt.Sprintf("settle:%s:%s", marketID, ledgerAccountID)
-		err = finance.TransferMoney(ctx, tx, houseAccountID, ledgerAccountID, refundCents, idemKey)
+		_, err = finance.TransferMoney(ctx, tx, houseAccountID, ledgerAccountID, refundCents, idemKey)
 		if err != nil {
 			return fmt.Errorf("failed to refund account %s: %w", ledgerAccountID, err)
 		}
 	}
 
 	if rows.Err() != nil {
-		return rows.Err()
+		return fmt.Errorf("error iterating bets rows: %w", rows.Err())
 	}
 
 	query = `UPDATE markets 

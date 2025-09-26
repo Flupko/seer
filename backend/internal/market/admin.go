@@ -2,10 +2,12 @@ package market
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -28,8 +30,8 @@ func (am *AdminManager) CreateMarket(ctx context.Context, m *Market, categoryIDs
 	defer tx.Rollback(ctx)
 
 	// Insert a new house ledger specially for this market
-	query := `INSERT INTO ledger_accounts(account_type, currency)
-	VALUES('house', 'USDT')
+	query := `INSERT INTO ledger_accounts(account_type, currency, allow_negative_balance, allow_positive_balance)
+	VALUES('house', 'USDT', false, true)
 	RETURNING id`
 
 	err = tx.QueryRow(ctx, query).Scan(&m.HouseLedgerAccountID)
@@ -83,6 +85,24 @@ func (am *AdminManager) CreateMarket(ctx context.Context, m *Market, categoryIDs
 
 	return tx.Commit(ctx)
 
+}
+
+func (ma *AdminManager) GetMarketStatus(ctx context.Context, marketID uuid.UUID) (MarketStatus, error) {
+
+	var status MarketStatus
+
+	query := `SELECT status FROM markets WHERE id = $1`
+
+	err := ma.db.QueryRow(ctx, query, marketID).Scan(&status)
+	if err != nil {
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			return "", ErrMarketNotFound
+		default:
+			return "", fmt.Errorf("failed to get market status: %w", err)
+		}
+	}
+	return status, nil
 }
 
 func (ma *AdminManager) UpdateMarketFees(ctx context.Context, marketID uuid.UUID, newFeePPM int64) error {
@@ -140,4 +160,42 @@ func (ma *AdminManager) UpdateMarketCloseTime(ctx context.Context, marketID uuid
 	}
 
 	return nil
+}
+
+func (ma *AdminManager) UpdateOutcomeSort(ctx context.Context, marketID uuid.UUID, outcomeSort MarketOutcomeSort) error {
+	cmd, err := ma.db.Exec(ctx, `UPDATE markets SET outcome_sort = $1 WHERE id = $2`, outcomeSort, marketID)
+
+	if err != nil {
+		return fmt.Errorf("failed to update outcome sort: %w", err)
+	}
+
+	if cmd.RowsAffected() == 0 {
+		return ErrMarketNotFound
+	}
+
+	return nil
+}
+
+func (ma *AdminManager) UpdateOutcomePositions(ctx context.Context, marketID uuid.UUID, outcomes []*Outcome) error {
+
+	query := `UPDATE outcomes SET position = $1 WHERE id = $2 AND market_id = $3`
+
+	tx, err := ma.db.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+
+	defer tx.Rollback(ctx)
+
+	for _, o := range outcomes {
+		cmd, err := tx.Exec(ctx, query, o.Position, o.ID, marketID)
+		if err != nil {
+			return fmt.Errorf("failed to update outcome %d position: %w", o.ID, err)
+		}
+		if cmd.RowsAffected() == 0 {
+			return fmt.Errorf("outcome %d not found for market %s", o.ID, marketID)
+		}
+	}
+
+	return tx.Commit(ctx)
 }

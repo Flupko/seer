@@ -26,7 +26,7 @@ import (
 
 type UserData struct {
 	Email         string `json:"email"`
-	EmailVerified bool   `json:"email_verified"`
+	EmailVerified bool   `json:"emailVerified"`
 	Picture       string `json:"picture"`
 	Sub           string `json:"sub"`
 }

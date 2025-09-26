@@ -39,7 +39,7 @@ const (
 
 func NewStateManager(ctx context.Context, rdb *redis.Client, db *pgxpool.Pool, logger *slog.Logger) *StateManager {
 
-	// Redis lua script which updates the cache only if the version on which the odds were computed
+	// Redis lua script which updates the cache only if the version on which the prices were computed
 	// is higher than the currently stored version
 	const lua = `
         local current_version = tonumber(redis.call('HGET', KEYS[1], 'version'))
@@ -86,8 +86,6 @@ func (sm *StateManager) start() {
 				sm.logger.Warn("pubsub channel closed")
 				return
 			}
-
-			fmt.Println("received market update")
 
 			err := sm.updateMarketPrices(msg.Payload)
 			if err != nil {
@@ -146,9 +144,9 @@ func (sm *StateManager) updateMarketPrices(payload string) error {
 	for i := range len(ms.QVec) {
 		wsPayload.Outcomes = append(wsPayload.Outcomes,
 			WSPayloadOutcomeUpdate{
-				ID:     ms.OutcomeIDs[i],
-				OddPPH: ms.OddsPPH[i],
-				Active: ms.OutcomeActive[i],
+				ID:      ms.OutcomeIDs[i],
+				ProbPPM: ms.PricesPPM[i],
+				Active:  ms.OutcomeActive[i],
 			})
 	}
 
@@ -173,7 +171,7 @@ func (sm *StateManager) updateMarketPrices(payload string) error {
 	return nil
 }
 
-// Returns (gainCents, oddsPPH, err)
+// Returns (gainCents, pricePPM, err)
 func (sm *StateManager) GetQuoteForBet(ctx context.Context, betAmountCents int64, marketID uuid.UUID, outcomeID int64) (int64, int64, error) {
 
 	ms, err := sm.GetMarketState(ctx, marketID)
@@ -188,13 +186,13 @@ func (sm *StateManager) GetQuoteForBet(ctx context.Context, betAmountCents int64
 		return 0, 0, ErrOutcomeNotFound
 	}
 
-	gainCents, _, oddPPH, err := OddAndGainFromBudget(ms.QVec, ms.AlphaPPM, ms.FeePPM, betAmountCents, idx)
+	gainCents, _, pricePPM, err := PriceAndGainFromBudget(ms.QVec, ms.AlphaPPM, ms.FeePPM, betAmountCents, idx)
 
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to compute gain: %w", err)
 	}
 
-	return gainCents, oddPPH, nil
+	return gainCents, pricePPM, nil
 }
 
 func (sm *StateManager) GetMarketState(ctx context.Context, marketID uuid.UUID) (*MarketState, error) {
@@ -246,8 +244,8 @@ func (sm *StateManager) retrieveMarketStateDB(ctx context.Context, marketID uuid
 	array_agg(o.id ORDER BY o.id) AS outcome_ids
 	FROM markets m
 	JOIN outcomes o ON o.market_id = m.id
-	WHERE o.market_id = $1 AND status = 'opened' AND (close_time IS NULL OR close_time > NOW())
-	GROUP BY m.id`
+	WHERE m.id = $1 AND status = 'opened' AND (close_time IS NULL OR close_time > NOW())
+	GROUP BY m.id, m.version, m.alpha_ppm, m.fee_ppm`
 
 	if err := sm.db.QueryRow(ctx, query, marketID).Scan(&ms.ID, &ms.Version, &ms.AlphaPPM, &ms.FeePPM, &ms.QVec, &ms.OutcomeIDs); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -260,12 +258,12 @@ func (sm *StateManager) retrieveMarketStateDB(ctx context.Context, marketID uuid
 		return nil, errors.New("inconsistent outcomes for market")
 	}
 
-	oddsPPH, outcomeActive, err := OddsDecPPH(ms.QVec, ms.AlphaPPM, ms.FeePPM)
+	pricesPPM, outcomeActive, err := PricesPPM(ms.QVec, ms.AlphaPPM, ms.FeePPM)
 	if err != nil {
-		return nil, fmt.Errorf("failed to compute odds for market %s: %w", ms.ID, err)
+		return nil, fmt.Errorf("failed to compute prices for market %s: %w", ms.ID, err)
 	}
 
-	ms.OddsPPH = oddsPPH
+	ms.PricesPPM = pricesPPM
 	ms.OutcomeActive = outcomeActive
 
 	return ms, nil
@@ -309,7 +307,7 @@ func (sm *StateManager) GetValidMarkets(ctx context.Context, marketIDs []uuid.UU
 	}
 
 	if rows.Err() != nil {
-		return nil, rows.Err()
+		return nil, fmt.Errorf("error iterating markets rows: %w", rows.Err())
 	}
 
 	return validMarkets, nil

@@ -44,13 +44,13 @@ func (qm *QueryManager) GetAllCategories(ctx context.Context) ([]Category, error
 	}
 
 	if rows.Err() != nil {
-		return nil, rows.Err()
+		return nil, fmt.Errorf("error iterating categories rows: %w", rows.Err())
 	}
 
 	return categories, nil
 }
 
-func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skipCache bool) ([]*MarketView, error) {
+func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skipCache bool) ([]*MarketView, *utils.Metadata, error) {
 
 	cacheKey := qm.buildCacheKey(sq)
 
@@ -60,9 +60,9 @@ func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skip
 
 		// Cache hit. If error either cache miss or redis issue
 		if err == nil {
-			var res []*MarketView
-			if err2 := utils.ReadJson(strings.NewReader(cached), &res); nil == err2 {
-				return res, nil
+			var searchRes MarketSearchResult
+			if err2 := utils.ReadJson(strings.NewReader(cached), &searchRes); nil == err2 {
+				return searchRes.Markets, searchRes.Metadata, nil
 			}
 		}
 	}
@@ -74,7 +74,7 @@ func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skip
 		tsQuery = strings.Join(strings.Fields(*sq.Query), ":* & ") + ":*"
 	}
 
-	query := fmt.Sprintf(`SELECT 
+	query := fmt.Sprintf(`SELECT count(*) OVER() AS total_count,
 	m.id, m.name, m.description, m.status, 
 	m.house_ledger_account_id, m.q0_seeding, m.alpha_ppm, m.fee_ppm, m.volume_cents,
 	m.created_at, m.close_time, 
@@ -90,34 +90,36 @@ func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skip
 
 	rows, err := qm.db.Query(ctx, query, tsQuery, sq.CategoryID, sq.Status, sq.Limit(), sq.Offset())
 	if err != nil {
-		return nil, fmt.Errorf("failed to query rows markets: %w", err)
+		return nil, nil, fmt.Errorf("failed to query rows markets: %w", err)
 	}
 	defer rows.Close()
 
 	markets := []*MarketView{}
+	var totalCount int64
 
 	for rows.Next() {
 		m := &MarketView{}
 
 		err = rows.Scan(
+			&totalCount,
 			&m.ID, &m.Name, &m.Description, &m.Status,
 			&m.HouseLedgerAccountID, &m.Q0Seeding, &m.AlphaPPM, &m.FeePPM, &m.VolumeCents,
 			&m.CreatedAt, &m.CloseTime, &m.OutcomeSort, &m.Version,
 		)
 
 		if err != nil {
-			return nil, fmt.Errorf("failed scanning market: %w", err)
+			return nil, nil, fmt.Errorf("failed scanning market: %w", err)
 		}
 
 		markets = append(markets, m)
 	}
 
 	if rows.Err() != nil {
-		return nil, rows.Err()
+		return nil, nil, fmt.Errorf("error iterating markets rows: %w", rows.Err())
 	}
 
 	if len(markets) == 0 {
-		return []*MarketView{}, nil
+		return []*MarketView{}, &utils.Metadata{}, nil
 	}
 
 	// Build market IDs slice
@@ -129,11 +131,11 @@ func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skip
 	// Query outcomes for all markets
 	outcomesByMarket, err := qm.getOutcomesForMarkets(ctx, marketIDs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get outcomes: %w", err)
+		return nil, nil, fmt.Errorf("failed to get outcomes: %w", err)
 	}
 
 	// Attach slice of outcomes to appropriate market
-	// Compute odds for outcomes, and sort them
+	// Compute pries for outcomes, and sort them
 	for _, m := range markets {
 
 		m.Outcomes = outcomesByMarket[m.ID]
@@ -143,14 +145,14 @@ func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skip
 			qVec[i] = o.Quantity
 		}
 
-		oddsPPH, active, err := OddsDecPPH(qVec, m.AlphaPPM, m.FeePPM)
+		pricesPPM, active, err := PricesPPM(qVec, m.AlphaPPM, m.FeePPM)
 		if err != nil {
-			return nil, fmt.Errorf("failed to compute odds for market %s", m.ID)
+			return nil, nil, fmt.Errorf("failed to compute prices for market %s", m.ID)
 		}
 
 		for i := range m.Outcomes {
 			m.Outcomes[i].Active = m.Status == StatusOpened && active[i]
-			m.Outcomes[i].OddPPH = oddsPPH[i]
+			m.Outcomes[i].PricePPM = pricesPPM[i]
 		}
 
 		qm.sortOutcomes(m.Outcomes, m.OutcomeSort)
@@ -160,7 +162,7 @@ func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skip
 	// Query categories
 	categoriesByMarket, err := qm.getCategoriesForMarkets(ctx, marketIDs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get outcomes for markets: %w", err)
+		return nil, nil, fmt.Errorf("failed to get outcomes for markets: %w", err)
 	}
 
 	// Attach categories to markets
@@ -168,13 +170,19 @@ func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skip
 		m.Categories = categoriesByMarket[m.ID]
 	}
 
-	// Set Redis cache
-	if data, err := json.Marshal(markets); nil == err {
-		// Set cache, ignore error
-		qm.rdb.SetEx(ctx, cacheKey, data, 5*time.Minute)
-	}
+	metadata := utils.CalculateMetadata(totalCount, sq.Page, sq.PageSize)
 
-	return markets, nil
+	// Set Redis cache
+	go func() {
+		cacheCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if data, err := json.Marshal(MarketSearchResult{Markets: markets, Metadata: metadata}); nil == err {
+			// Set cache, ignore error
+			qm.rdb.SetEx(cacheCtx, cacheKey, data, 5*time.Minute)
+		}
+	}()
+
+	return markets, metadata, nil
 
 }
 
@@ -240,7 +248,7 @@ func (qm *QueryManager) getCategoriesForMarkets(ctx context.Context, marketIDs [
 	}
 
 	if rows.Err() != nil {
-		return nil, rows.Err()
+		return nil, fmt.Errorf("error iterating categories rows: %w", rows.Err())
 	}
 
 	return categoriesByMarket, nil
@@ -252,7 +260,7 @@ func (qm *QueryManager) sortOutcomes(outcomes []OutcomeView, outcomeSort MarketO
 	switch outcomeSort {
 	case SortPrice:
 		sort.Slice(outcomes, func(i, j int) bool {
-			return outcomes[i].OddPPH < outcomes[j].OddPPH
+			return outcomes[i].PricePPM < outcomes[j].PricePPM
 		})
 	case SortPosition:
 		sort.Slice(outcomes, func(i, j int) bool {

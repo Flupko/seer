@@ -145,7 +145,7 @@ func (blm *BetLiveManager) retrieveBetStateDB(ctx context.Context, betID uuid.UU
 	u.username, u.hidden, 
 	b.total_price_paid_cents AS wager_cents,
 	b.payout_cents,
-	b.purchase_time AS placed_at
+	b.placed_at
 	FROM bets b
 	JOIN outcomes o ON o.id = b.outcome_id
 	JOIN markets m ON m.id = o.market_id
@@ -171,13 +171,13 @@ func (blm *BetLiveManager) retrieveBetStateDB(ctx context.Context, betID uuid.UU
 		bs.Username = &username
 	}
 
-	odds, err := ComputeOddDecPPH(bs.WagerCents, payoutCents)
+	pricePPM, err := ComputePricePPM(bs.WagerCents, payoutCents)
 
 	if err != nil {
-		return nil, fmt.Errorf("failed to compute odd for bet : %w", err)
+		return nil, fmt.Errorf("failed to compute prices for bet : %w", err)
 	}
 
-	bs.OddsDecimalPPH = odds
+	bs.ProbPPM = pricePPM
 
 	return bs, nil
 }
@@ -189,13 +189,13 @@ func (blm *BetLiveManager) PrepopulateLatestBets(ctx context.Context) error {
         u.username, u.hidden, 
         b.total_price_paid_cents AS wager_cents,
         b.payout_cents,
-		b.purchase_time AS placed_at
+		b.placed_at
         FROM bets b
 		JOIN outcomes o ON o.id = b.outcome_id
 		JOIN markets m ON m.id = o.market_id
         JOIN ledger_accounts la ON la.id = b.ledger_account_id
         JOIN users u ON u.id = la.user_id
-        ORDER BY b.purchase_time DESC
+        ORDER BY b.placed_at DESC
         LIMIT $1`
 
 	return blm.prepopulateBets(ctx, latestBetsKey, query, nbBetsKept)
@@ -208,14 +208,14 @@ func (blm *BetLiveManager) PrepopulateHighBets(ctx context.Context) error {
         u.username, u.hidden, 
         b.total_price_paid_cents AS wager_cents,
         b.payout_cents,
-		b.purchase_time AS placed_at
+		b.placed_at
         FROM bets b
 		JOIN outcomes o ON o.id = b.outcome_id
 		JOIN markets m ON m.id = o.market_id
         JOIN ledger_accounts la ON la.id = b.ledger_account_id
         JOIN users u ON u.id = la.user_id
 		WHERE b.total_price_paid_cents >= $1
-        ORDER BY b.purchase_time DESC
+        ORDER BY b.placed_at DESC
         LIMIT $2`
 
 	return blm.prepopulateBets(ctx, highBetsKey, query, highBetsTreshold, nbBetsKept)
@@ -253,14 +253,18 @@ func (blm *BetLiveManager) prepopulateBets(ctx context.Context, cacheKey string,
 			bs.Username = &username
 		}
 
-		odds, err := ComputeOddDecPPH(bs.WagerCents, payoutCents)
+		pricePPM, err := ComputePricePPM(bs.WagerCents, payoutCents)
 		if err != nil {
-			blm.logger.Warn("failed to compute odds for bet")
+			blm.logger.Warn("failed to compute prices for bet")
 			continue
 		}
 
-		bs.OddsDecimalPPH = odds
+		bs.ProbPPM = pricePPM
 		bets = append(bets, bs)
+	}
+
+	if rows.Err() != nil {
+		return fmt.Errorf("error iterating bets rows: %w", rows.Err())
 	}
 
 	if len(bets) == 0 {
@@ -269,7 +273,7 @@ func (blm *BetLiveManager) prepopulateBets(ctx context.Context, cacheKey string,
 
 	// Clear existing cache and populate
 	if err = blm.rdb.Del(ctx, cacheKey).Err(); err != nil {
-		return fmt.Errorf("failed to delete current redis cache")
+		return fmt.Errorf("failed to delete current redis bets cache %w", err)
 	}
 
 	// Insert bets in reverse order (oldest first) so newest is at head

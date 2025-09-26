@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"seer/internal/market"
 	"seer/internal/utils"
+	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
@@ -33,6 +35,12 @@ type betReq struct {
 
 func (h *TransactionHandler) PlaceBet(c echo.Context) error {
 
+	start := time.Now()
+	defer func() {
+		elapsed := time.Since(start)
+		fmt.Println("elpased", elapsed)
+	}()
+
 	b := &betReq{}
 	if err := utils.ParseAndValidateJSON(c.Request().Body, b, h.validate); err != nil {
 		return err
@@ -55,5 +63,5 @@ func (h *TransactionHandler) PlaceBet(c echo.Context) error {
 		return mapErrorRepo(err)
 	}
 
-	return c.JSON(http.StatusOK, utils.Envelope{"message": "bet succesfully placed"})
+	return echo.NewHTTPError(http.StatusOK, "bet succesfully placed")
 }

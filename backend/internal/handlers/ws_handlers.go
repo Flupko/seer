@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"seer/internal/chat"
 	"seer/internal/market"
+	"seer/internal/repos"
 	"seer/internal/utils"
 	"seer/internal/ws"
 	"strings"
@@ -38,10 +39,12 @@ const (
 	ErrCodeInternalError    = "internal_error"
 	ErrCodeValidationError  = "validation_error"
 	ErrCodeNotAuthenticated = "not_authenticated_error"
+	ErrCodeNotAuthorized    = "not_authorized"
+	ErrCodeChatRoomNotFound = "chat_room_not_found"
 )
 
 type JoinMarketPayload struct {
-	MarketIDs []uuid.UUID `json:"market_ids" validate:"required,max=49,min=1"`
+	MarketIDs []uuid.UUID `json:"marketIds" validate:"required,max=49,min=1"`
 }
 
 func (h *WsHandler) HandleJoinMarketRooms(c *ws.Client, reqPayload string) {
@@ -98,8 +101,8 @@ func (h *WsHandler) HandleJoinMarketRooms(c *ws.Client, reqPayload string) {
 		for i := range len(ms.QVec) {
 			wsPayload.Outcomes = append(wsPayload.Outcomes,
 				market.WSPayloadOutcomeUpdate{
-					ID:     ms.OutcomeIDs[i],
-					OddPPH: ms.OddsPPH[i],
+					ID:      ms.OutcomeIDs[i],
+					ProbPPM: ms.PricesPPM[i],
 				})
 		}
 
@@ -167,8 +170,13 @@ func (h *WsHandler) HandleJoinBetsRoom(c *ws.Client, reqPayload string) {
 		latestBetsAny[i] = wsBuf
 	}
 
-	err1 := c.SendBatchJSON(latestBetsAny)
-	err2 := c.SendBatchJSON(highBetsAny)
+	var err1, err2 error
+	if len(latestBetsAny) > 0 {
+		err1 = c.SendBatchJSON(latestBetsAny)
+	}
+	if len(highBetsAny) > 0 {
+		err2 = c.SendBatchJSON(highBetsAny)
+	}
 
 	if err := errors.Join(err1, err2); err != nil {
 		h.sendError(c, ErrCodeInternalError)
@@ -179,22 +187,51 @@ func (h *WsHandler) HandleJoinBetsRoom(c *ws.Client, reqPayload string) {
 
 }
 
-func (h *WsHandler) HandleJoinGlobalChat(c *ws.Client, reqPayload string) {
+type JoinChatRoomPaylod struct {
+	ChatSlug string `json:"chatSlug" validate:"required,lowercase,alphanum,min=3,max=20"`
+}
+
+func (h *WsHandler) HandleJoinChatRoom(c *ws.Client, reqPayload string) {
 
 	ctx, cancel := context.WithTimeout(c.Ctx, 5*time.Second)
 	defer cancel()
 
-	msgs, err := h.cm.GetLastMessages(ctx)
+	p := &JoinChatRoomPaylod{}
+	if err := utils.ReadJson(strings.NewReader(reqPayload), p); err != nil {
+		switch {
+		case errors.Is(err, utils.ErrInvalidJSON):
+			h.sendError(c, ErrCodeInvalidPayload)
+		default:
+			h.sendError(c, ErrCodeInternalError)
+		}
+		c.Disconnect()
+		return
+	}
+
+	if err := h.validate.Struct(p); err != nil {
+		h.sendError(c, ErrCodeInvalidPayload)
+		c.Disconnect()
+		return
+	}
+
+	msgs, err := h.cm.GetLastMessagesChat(ctx, p.ChatSlug)
 	if err != nil {
-		h.sendError(c, ErrCodeInternalError)
+		fmt.Println("error getting last messages:", err)
+		switch {
+		case errors.Is(err, chat.ErrChatRoomNotFound):
+			h.sendError(c, ErrCodeChatRoomNotFound)
+		default:
+			h.sendError(c, ErrCodeInternalError)
+		}
 		return
 	}
 
 	msgsAny := make([]any, len(msgs))
+	wsChatRoom := chat.BuildWSChatRoom(p.ChatSlug)
 
 	for i, m := range msgs {
 
-		wsBuf, err := utils.WsMessage(chat.WSChatRoom, m)
+		wsBuf, err := utils.WsMessage(wsChatRoom, m)
 		if err != nil {
 			h.sendError(c, ErrCodeInternalError)
 			return
@@ -203,24 +240,27 @@ func (h *WsHandler) HandleJoinGlobalChat(c *ws.Client, reqPayload string) {
 		msgsAny[i] = wsBuf
 	}
 
-	if err := c.SendBatchJSON(msgsAny); err != nil {
-		h.sendError(c, ErrCodeInternalError)
-		return
+	if len(msgsAny) > 0 {
+		if err := c.SendBatchJSON(msgsAny); err != nil {
+			h.sendError(c, ErrCodeInternalError)
+			return
+		}
 	}
 
-	c.Join(chat.WSChatRoom)
+	c.Join(wsChatRoom)
 }
 
 type SendMessagePayload struct {
-	Message string `json:"message" validate:"min=1,max=50"`
+	Message  string `json:"message" validate:"min=1,max=50"`
+	ChatSlug string `json:"chatSlug" validate:"required,lowercase,alphanum,min=3,max=20"`
 }
 
 func (h *WsHandler) HandleSendMessage(c *ws.Client, reqPayload string) {
 
-	// Validate the user is connected
-	// if c.User == repos.AnonymousUser {
-	// 	h.sendError(c, ErrCodeNotAuthenticated)
-	// }
+	if c.User.MutedUntil.Valid && c.User.MutedUntil.Time.After(time.Now()) {
+		h.sendError(c, ErrCodeNotAuthorized)
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(c.Ctx, 5*time.Second)
 	defer cancel()
@@ -229,6 +269,7 @@ func (h *WsHandler) HandleSendMessage(c *ws.Client, reqPayload string) {
 
 	p := &SendMessagePayload{}
 	if err := utils.ReadJson(strings.NewReader(reqPayload), p); err != nil {
+		fmt.Println("error reading json:", err)
 		switch {
 		case errors.Is(err, utils.ErrInvalidJSON):
 			h.sendError(c, ErrCodeInvalidPayload)
@@ -240,28 +281,35 @@ func (h *WsHandler) HandleSendMessage(c *ws.Client, reqPayload string) {
 	}
 
 	if err := h.validate.Struct(p); err != nil {
+		fmt.Println("validation error:", err)
 		h.sendError(c, ErrCodeInvalidPayload)
 		c.Disconnect()
 		return
 	}
 
-	sent, err := h.cm.SendMessage(ctx, c.User, p.Message)
+	sent, err := h.cm.SendMessage(ctx, c.User, p.Message, p.ChatSlug)
 	if err != nil {
-		fmt.Println("err", err)
-		h.sendError(c, ErrCodeInternalError)
+		fmt.Println("error sending message:", err)
+		switch {
+		case errors.Is(err, chat.ErrChatRoomNotFound):
+			h.sendError(c, ErrCodeChatRoomNotFound)
+		default:
+			h.sendError(c, ErrCodeInternalError)
+		}
 		return
 	}
 
-	// Rate limited, inform client
+	wsChatRoom := chat.BuildWSChatRoom(p.ChatSlug)
 	if sent {
-		wsAckMsg := ws.Message{Type: chat.WSChatRoom + ":ack"}
+		wsAckMsg := ws.Message{Type: wsChatRoom + ":ack"}
 		if buf, err := json.Marshal(wsAckMsg); err == nil {
 			c.Send(buf)
 		} else {
 			h.sendError(c, ErrCodeInternalError)
 		}
 	} else {
-		wsRateMsg := ws.Message{Type: chat.WSChatRoom + ":rate"}
+		// Rate limited, inform client
+		wsRateMsg := ws.Message{Type: wsChatRoom + ":rate"}
 		if buf, err := json.Marshal(wsRateMsg); err == nil {
 			c.Send(buf)
 		} else {
@@ -269,6 +317,26 @@ func (h *WsHandler) HandleSendMessage(c *ws.Client, reqPayload string) {
 		}
 	}
 
+}
+
+func (h *WsHandler) RequireAuthentication(next ws.WsHandlerFunc) ws.WsHandlerFunc {
+	return func(c *ws.Client, reqPayload string) {
+
+		// Validate the user is connected
+		if c.User == repos.AnonymousUser {
+			h.sendError(c, ErrCodeNotAuthenticated)
+			return
+		}
+
+		// Validate the user is activated
+		if c.User.Status != repos.Activated {
+			h.sendError(c, ErrCodeNotAuthorized)
+			return
+		}
+
+		// Call  next
+		next(c, reqPayload)
+	}
 }
 
 type WSError struct {

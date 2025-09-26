@@ -170,7 +170,7 @@ func Cost(q []int64, alphaPPM int64) (int64, error) {
 	}
 
 	var costD decimal.Big
-	ctx.Mul(&costD, b, &tmp) // costD = bD * (maxXiD + ln(sumExpD))
+	ctx.Mul(&costD, b, &tmp) // costD = b * (maxXi + ln(sumExp))
 	if err := ctx.Err(); err != nil {
 		return 0, fmt.Errorf("failed to compute cost: %w", err)
 	}
@@ -447,8 +447,8 @@ func PricesDec(q []int64, alphaPPM int64) ([]*decimal.Big, error) {
 
 }
 
-// Returns (odds, active) in Parts per Hundreds rounded down, ie 2.529 OUTPUTS => 252
-func OddsDecPPH(q []int64, alphaPPM, feePPM int64) ([]int64, []bool, error) {
+// Returns (pricePPM, active)
+func PricesPPM(q []int64, alphaPPM, feePPM int64) ([]int64, []bool, error) {
 
 	if len(q) == 0 {
 		return nil, nil, errors.New("empty q vector")
@@ -473,13 +473,11 @@ func OddsDecPPH(q []int64, alphaPPM, feePPM int64) ([]int64, []bool, error) {
 		return nil, nil, errors.New("q and pD of different length")
 	}
 
-	// Odds = inverse of prices
-
 	// Compute fee applied
 	fee := decimal.New(feePPM, 6)
 
 	// For each outcome we have the following :
-	// odd = (1 / pi) * (1 - fee)
+	// price_final = pi * (1 - fee)
 	var oneMinFee decimal.Big
 	ctx.Sub(&oneMinFee, decimal.New(1, 0), fee)
 	if err := ctx.Err(); err != nil {
@@ -487,7 +485,7 @@ func OddsDecPPH(q []int64, alphaPPM, feePPM int64) ([]int64, []bool, error) {
 	}
 
 	n := len(q)
-	oddsPPH_I := make([]int64, n)
+	pricePPM_I := make([]int64, n)
 	active := make([]bool, n)
 
 	for i, pi := range p {
@@ -499,53 +497,46 @@ func OddsDecPPH(q []int64, alphaPPM, feePPM int64) ([]int64, []bool, error) {
 		// Active q only if price < cap price
 		active[i] = pi.Cmp(capMarket) == -1
 
-		// invPiD =  (1 / piD)
-		var invPi decimal.Big
-		ctx.Quo(&invPi, decimal.New(1, 0), pi)
+		// price_final = (pi * oneMinFee) * 10^6
+		var pf decimal.Big
+		ctx.Mul(&pf, pi, &oneMinFee)
 		if err := ctx.Err(); err != nil {
-			return nil, nil, fmt.Errorf("failed to compute inv of pi: %w", err)
+			return nil, nil, fmt.Errorf("failed to multiply pf * oneMinFee: %w", err)
 		}
 
-		// oddD = invPiD * oneMinFee = (1/pi) * (1-fee)
-		var odd decimal.Big
-		ctx.Mul(&odd, &invPi, &oneMinFee)
+		// Multiply by 10^6 to get in PPM
+		var pfPPM decimal.Big
+		ctx.Mul(&pfPPM, &pf, decimal.New(1, -6))
 		if err := ctx.Err(); err != nil {
-			return nil, nil, fmt.Errorf("failed to multiply baseD * oneMinFeeD: %w", err)
+			return nil, nil, fmt.Errorf("failed to compute PPM price (*10^6): %w", err)
 		}
 
-		// Multiply by 100 to keep in PPH
-		var scaledOdd decimal.Big
-		ctx.Mul(&scaledOdd, &odd, decimal.New(100, 0))
+		// Ceil, round up the price
+		var ceilPfPPM decimal.Big
+
+		ctx.Floor(&ceilPfPPM, &pfPPM)
 		if err := ctx.Err(); err != nil {
-			return nil, nil, fmt.Errorf("failed to scaled odd: %w", err)
+			return nil, nil, fmt.Errorf("failed to ceil scaled price: %w", err)
 		}
 
-		// Floor, explicit RoundDown
-
-		var floorScaledOdd decimal.Big
-
-		ctx.Floor(&floorScaledOdd, &scaledOdd)
-		if err := ctx.Err(); err != nil {
-			return nil, nil, fmt.Errorf("failed to floor scaled odd: %w", err)
-		}
-
-		oddPPH_I, ok := floorScaledOdd.Int64()
+		p_PPM_I, ok := ceilPfPPM.Int64()
 		if !ok {
-			return nil, nil, fmt.Errorf("error converting scaled odd to int64")
+			return nil, nil, fmt.Errorf("error converting scaled price to int64")
 		}
 
-		oddsPPH_I[i] = oddPPH_I
+		pricePPM_I[i] = p_PPM_I
 
 	}
 
-	return oddsPPH_I, active, nil
+	return pricePPM_I, active, nil
 
 }
 
-// OddAndGainFromBudget applies fees to the budget, buys shares, and returns (gainCents, feeCents, oddPPH)
+// PriceAndGainFromBudget applies fees to the budget, buys shares, and returns (gainCents, feeCents, pricePPM)
 // budgetCents - gainCents gives the market maker's fee
-// oddPPH is floor( ((budget-fee)/gain) * 100 ) -> Purely "indicative", DO NOT USE for business logic
-func OddAndGainFromBudget(q []int64, alphaPPM int64, feePPM int64, budgetCents int64, idx int) (int64, int64, int64, error) {
+// pricePPM is ceil of the average price shares are bought = (gainCents / budgetCents) * 10^6
+// = Purely "indicative", DO NOT USE for business logic
+func PriceAndGainFromBudget(q []int64, alphaPPM int64, feePPM int64, budgetCents int64, idx int) (int64, int64, int64, error) {
 
 	if len(q) == 0 {
 		return 0, 0, 0, errors.New("empty q vector")
@@ -587,12 +578,11 @@ func OddAndGainFromBudget(q []int64, alphaPPM int64, feePPM int64, budgetCents i
 	}
 
 	gainCents := min(capCents, gainFromBudgetCents)
-
-	oddPPH_I, err := ComputeOddDecPPH(budgetCents, gainCents)
+	pPPM, err := ComputePricePPM(budgetCents, gainCents)
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("error ComputeOddDecPPH: %w", err)
+		return 0, 0, 0, fmt.Errorf("failed to compute price average for shares: %w", err)
 	}
 
-	return gainCents, feeCents, oddPPH_I, nil
+	return gainCents, feeCents, pPPM, nil
 
 }

@@ -7,11 +7,12 @@ CREATE TABLE users (
     username TEXT UNIQUE NOT NULL,
 
     password_hash BYTEA,
-    provider_id TEXT NOT NULL CHECK (provider_id IN ('credentials', 'google')),
+    provider_id TEXT NOT NULL CHECK (provider_id IN ('credentials', 'google', 'twitch')),
     provider_user_id TEXT NOT NULL, -- sub when external provider, otherwise email for credentials
 
     role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
     profile_image_key TEXT,
+
     hidden BOOLEAN NOT NULL DEFAULT FALSE,
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -47,7 +48,7 @@ CREATE TABLE sessions (
     geo_city TEXT
 );
 
-CREATE INDEX sessions_active ON sessions(user_id, last_used_at DESC);
+CREATE INDEX idx_sessions_active ON sessions(user_id, last_used_at DESC);
 
 
 CREATE TABLE tokens (
@@ -63,20 +64,20 @@ CREATE TABLE tokens (
 CREATE TABLE ledger_accounts (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES users(id), -- null for house's accounts
-    account_type TEXT NOT NULL CHECK (account_type IN ('house', 'user', 'liability')),
+    account_type TEXT NOT NULL CHECK (account_type IN ('custody', 'liability', 'house', 'owner_withdrawal')),
     balance BIGINT NOT NULL DEFAULT 0,
     currency TEXT NOT NULL CHECK(currency IN ('USDT')),
-    version BIGINT NOT NULL DEFAULT 0,
     allow_negative_balance BOOLEAN NOT NULL,
     allow_positive_balance BOOLEAN NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    version BIGINT NOT NULL DEFAULT 0,
     CONSTRAINT user_account_has_user CHECK (
-        (account_type = 'house' AND user_id IS NULL) OR 
-        (account_type = 'user' AND user_id IS NOT NULL)
+        (account_type IN ('house', 'liability') AND user_id IS NULL) OR 
+        (account_type IN ('custody', 'liability') AND user_id IS NOT NULL)
     )
 );
 
-CREATE UNIQUE INDEX idx_user_currency_account ON ledger_accounts(user_id, currency) WHERE account_type = 'user';
+CREATE UNIQUE INDEX idx_user_account_currency_type ON ledger_accounts(user_id, currency, account_type) WHERE account_type IN ('custody', 'liability');
 
 
 CREATE TABLE ledger_transfers (
@@ -86,7 +87,6 @@ CREATE TABLE ledger_transfers (
     amount_minor BIGINT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     idempotency_key TEXT NOT NULL,
-    metadata JSONB NOT NULL DEFAULT '{}',
     CONSTRAINT ledger_transfers_integrity CHECK (amount_minor > 0 AND from_account_id != to_account_id),
     CONSTRAINT ledger_transfers_idempotency_key_unique UNIQUE (idempotency_key)
 );
@@ -108,21 +108,21 @@ CREATE TABLE ledger_entries (
     CONSTRAINT ledger_entries_balance CHECK (account_current_balance = account_previous_balance + amount_minor)
 );
 
-CREATE INDEX ON ledger_entries(account_id);
-CREATE INDEX ON ledger_entries(transfer_id);
+CREATE INDEX idx_ledger_entries_account ON ledger_entries(account_id);
+CREATE INDEX idx_ledger_entries_transfer ON ledger_entries(transfer_id);
 
 -- Ensure ledger_entries are immutable
-CREATE OR REPLACE FUNCTION ledger_entries_immutable()
-RETURNS trigger LANGUAGE plpgsql AS $$
+CREATE OR REPLACE FUNCTION ledger_entries_immutable() RETURNS trigger AS $$
 BEGIN
   RAISE EXCEPTION 'ledger_entries are immutable';
-END$$;
+END;
+$$ LANGUAGE plpgsql;
 
-CREATE TRIGGER trg_entries_no_update
+CREATE TRIGGER ledger_entries_no_update_tgr
 BEFORE UPDATE ON ledger_entries
 FOR EACH ROW EXECUTE FUNCTION ledger_entries_immutable();
 
-CREATE TRIGGER trg_entries_no_delete
+CREATE TRIGGER ledger_entries_no_delete_tgr
 BEFORE DELETE ON ledger_entries
 FOR EACH ROW EXECUTE FUNCTION ledger_entries_immutable();
 
@@ -131,18 +131,18 @@ CREATE OR REPLACE FUNCTION ledger_check_account_balance_constraints(account ledg
 BEGIN
     -- If account doesn't allow negative balance and balance is negative, raise an error
     IF NOT account.allow_negative_balance AND (account.balance < 0) THEN
-        RAISE EXCEPTION 'Account (id=%, type=%) does not allow negative balance', account.id, account.account_type;
+        RAISE EXCEPTION 'ledger_account_policy Account (id=%, type=%) does not allow negative balance', account.id, account.account_type;
     END IF;
 
     -- If account doesn't allow positive balance and balance is positive, raise an error
     IF NOT account.allow_positive_balance AND (account.balance > 0) THEN
-        RAISE EXCEPTION 'Account (id=%, type=%) does not allow positive balance', account.id, account.account_type;
+        RAISE EXCEPTION 'ledger_account_policy Account (id=%, type=%) does not allow positive balance', account.id, account.account_type;
     END IF;
 END;
 $$ LANGUAGE plpgsql;
 
 
-CREATE OR REPLACE FUNCTION ledger_create_transfer(from_account_id UUID, to_account_id UUID, amount_minor BIGINT, idempotency_key TEXT, metadata JSONB DEFAULT '{}')
+CREATE OR REPLACE FUNCTION ledger_create_transfer(from_account_id UUID, to_account_id UUID, amount BIGINT, idem TEXT)
 RETURNS UUID AS $$
 DECLARE
 from_account ledger_accounts;
@@ -151,12 +151,12 @@ transfer_id UUID;
 BEGIN
 
     -- Preliminary checks
-    IF amount_minor <= 0 THEN
-        RAISE EXCEPTION 'Amount (%) must be positive', amount_minor;
+    IF amount <= 0 THEN
+        RAISE EXCEPTION 'invalid_amount Amount (%) must be positive', amount;
     END IF;
 
     IF from_account_id = to_account_id THEN
-        RAISE EXCEPTION 'Cannot transfer to the same account (id=%)', from_account_id;
+        RAISE EXCEPTION 'same_account Cannot transfer to the same account (id=%)', from_account_id;
     END IF;
 
     SELECT * INTO from_account FROM ledger_accounts 
@@ -165,18 +165,22 @@ BEGIN
     SELECT * INTO to_account FROM ledger_accounts 
     WHERE id = to_account_id FOR UPDATE;
 
-    IF from_account.currency != to_account.currency THEN
-        RAISE EXCEPTION 'Cannot transfer between different currencies (% and %)', from_account.currency, to_account.currency;
+    IF from_account IS NULL THEN
+        RAISE EXCEPTION 'account_not_found From account (id=%) does not exist', from_account_id;
     END IF;
 
-    -- Beforehand check for balance
-    IF from_account.balance - amount_minor < 0 AND NOT from_account.allow_negative_balance THEN
-        RAISE EXCEPTION 'Insufficient funds or negative balance not allowed';
+    IF to_account IS NULL THEN
+        RAISE EXCEPTION 'account_not_found To account (id=%) does not exist', to_account_id;
+    END IF;
+
+
+    IF from_account.currency != to_account.currency THEN
+        RAISE EXCEPTION 'different_currencies Cannot transfer between different currencies (% and %)', from_account.currency, to_account.currency;
     END IF;
 
     -- Update balances
     UPDATE ledger_accounts
-    SET balance = balance - amount_minor, version = version + 1
+    SET balance = balance - amount, version = version + 1
     WHERE ledger_accounts.id = from_account_id
     RETURNING * INTO from_account;
 
@@ -184,29 +188,29 @@ BEGIN
     PERFORM ledger_check_account_balance_constraints(from_account);
 
     UPDATE ledger_accounts
-    SET balance = balance + amount_minor, version = version + 1
+    SET balance = balance + amount, version = version + 1
     WHERE ledger_accounts.id = to_account_id
     RETURNING * INTO to_account;
 
     -- Check balance constraints for the destination account
     PERFORM ledger_check_account_balance_constraints(to_account);
 
-    INSERT INTO ledger_transfers(from_account_id, to_account_id, amount_minor, idempotency_key, metadata)
-    VALUES (from_account_id, to_account_id, amount_minor, idempotency_key, metadata)
+    INSERT INTO ledger_transfers(from_account_id, to_account_id, amount_minor, idempotency_key)
+    VALUES (from_account_id, to_account_id, amount, idem)
     ON CONFLICT (idempotency_key) DO NOTHING
     RETURNING ledger_transfers.id INTO transfer_id;
 
     IF transfer_id IS NULL THEN
-        RAISE EXCEPTION 'Idempotency key already used %s', idempotency_key;
+        RAISE EXCEPTION 'idempotency_key Idempotency key already used %', idem;
     END IF;
 
     -- Create entry for the source account (negative amount)
     INSERT INTO ledger_entries(account_id, transfer_id, amount_minor, account_previous_balance, account_current_balance, account_version)
-    VALUES (from_account_id, transfer_id, -amount_minor, from_account.balance + amount_minor, from_account.balance, from_account.version);
+    VALUES (from_account_id, transfer_id, - amount, from_account.balance + amount, from_account.balance, from_account.version);
 
     -- Create entry for the destination account (positive amount)
     INSERT INTO ledger_entries(account_id, transfer_id, amount_minor, account_previous_balance, account_current_balance, account_version)
-    VALUES (to_account_id, transfer_id, amount_minor, to_account.balance - amount_minor, to_account.balance, to_account.version);
+    VALUES (to_account_id, transfer_id, amount, to_account.balance - amount, to_account.balance, to_account.version);
 
     RETURN transfer_id;
 
@@ -217,7 +221,65 @@ $$ LANGUAGE plpgsql;
 
 -----------------------------------------------------------------------------------------------------------
 
+CREATE TABLE deposits (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
 
+    -- Transfer FROM company custody cash account TO user's liability account
+    ledger_transfer_id UUID NOT NULL REFERENCES ledger_transfers(id),
+    
+    source_currency TEXT NOT NULL CHECK(source_currency IN ('USDT', 'BTC', 'ETH', 'SOL', 'USD', 'EUR')),
+    source_amount_minor BIGINT NOT NULL,
+    source_tx_hash TEXT NOT NULL, -- Blockchain transaction hash
+    source_address TEXT NOT NULL,
+
+    settled_currency TEXT NOT NULL CHECK (settled_currency IN ('USDT')),
+    settled_amount_minor BIGINT NOT NULL,
+
+    payment_provider TEXT NOT NULL CHECK(payment_provider IN ('TODO')),
+    provider_transaction_id TEXT NOT NULL, -- internal transaction id in provider's system
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE withdraws (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+
+    -- Transfer FROM user's liability account TO company custody cash account
+    ledger_transfer_id UUID NOT NULL REFERENCES ledger_transfers(id),
+
+    destination_currency TEXT NOT NULL CHECK (destination_currency IN ('USDT', 'BTC', 'ETH', 'SOL')),
+    destination_amount_minor BIGINT NOT NULL,
+    destination_tx_hash TEXT NOT NULL, -- Blockchain transaction hash
+    destination_address TEXT NOT NULL,
+
+    status TEXT NOT NULL CHECK (status IN ('progressing', 'finished', 'cancelled'))
+);
+
+-----------------------------------------------------------------------------------------------------------
+
+
+CREATE TABLE chat_rooms (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    label TEXT NOT NULL,
+    slug TEXT NOT NULL UNIQUE
+);
+
+-- Only records user messages. System messages are not persisted
+CREATE TABLE chat_messages (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(), -- allows us to differ saving messages to DB, while still having the soon to be primary key
+    user_id UUID NOT NULL REFERENCES users(id),
+    chat_id UUID NOT NULL REFERENCES chat_rooms(id),
+    content TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    is_deleted BOOLEAN NOT NULL DEFAULT false,
+    deleted_at TIMESTAMPTZ
+);
+
+CREATE INDEX chat_messages_user ON chat_messages(user_id);
+CREATE INDEX idx_chat_messages_room_time ON chat_messages(chat_id, created_at DESC);
+
+-----------------------------------------------------------------------------------------------------------
 
 CREATE TABLE markets (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -255,7 +317,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END; 
-LANGUAGE PLPGSQL $$;
+$$ LANGUAGE plpgsql;
 
 CREATE TRIGGER trg_markets_final_status
 BEFORE UPDATE ON markets
@@ -319,13 +381,112 @@ CREATE TABLE bets (
     fee_paid_cents BIGINT NOT NULL, -- fee deduced from the price paid to calculate payout
     fee_ppm BIGINT NOT NULL, -- fee in percentage, applied to the input price
     idempotency_key TEXT NOT NULL,
-    purchase_time TIMESTAMPTZ NOT NULL DEFAULT now(),
+    placed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT bet_idempotency_key_unique UNIQUE (idempotency_key),
     CONSTRAINT bets_positive_payout CHECK (payout_cents >= 0) 
 );
 
 CREATE INDEX idx_bet_outcome_ledger_account ON bets(outcome_id, ledger_account_id);
-CREATE INDEX idx_bets_ledger_account_purchase_time ON bets(ledger_account_id, purchase_time DESC);
-CREATE INDEX idx_bets_outcome_purchase_time ON bets(outcome_id, purchase_time DESC);
+CREATE INDEX idx_bets_ledger_account_placed_at ON bets(ledger_account_id, placed_at DESC);
+CREATE INDEX idx_bets_outcome_placed_at ON bets(outcome_id, placed_at DESC);
+
+-----------------------------------------------------------------------------------------------------------
+
+CREATE TABLE outcome_price_history (
+    id BIGSERIAL PRIMARY KEY,
+    outcome_id BIGINT NOT NULL REFERENCES outcomes(id),
+    price_ppm BIGINT NOT NULL,
+    time_recorded TIMESTAMPTZ NOT NULL DEFAULT now()
+);
 
 
+
+
+
+-----------------------------------------------------------------------------------------------------------
+
+CREATE TABLE comments (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id),
+    market_id UUID NOT NULL REFERENCES markets(id),
+    content TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+
+    is_deleted BOOLEAN NOT NULL DEFAULT false,
+    deleted_at TIMESTAMPTZ,
+
+    parent_id BIGINT REFERENCES comments(id),
+    depth BIGINT NOT NULL
+);
+
+-----------------------------------------------------------------------------------------------------------
+
+CREATE TABLE user_mutes (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id),
+    reason TEXT NOT NULL,
+    effective_until TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+);
+
+CREATE INDEX idx_user_mutes_user_effective_until ON user_mutes(user_id, effective_until DESC);
+
+CREATE TABLE mute_chat_messages (
+    id BIGSERIAL PRIMARY KEY,
+    chat_message_id UUID NOT NULL REFERENCES chat_messages(id),
+    user_mute_id BIGINT NOT NULL REFERENCES user_mutes(id),
+    CONSTRAINT mute_problematic_messages_unique UNIQUE (chat_message_id, user_mute_id)
+);
+
+CREATE INDEX idx_mute_chat_messages_user_mute ON mute_chat_messages(user_mute_id);
+
+CREATE TABLE mute_comments (
+    id BIGSERIAL PRIMARY KEY,
+    comment_id BIGINT NOT NULL REFERENCES comments(id),
+    user_mute_id BIGINT NOT NULL REFERENCES user_mutes(id),
+    CONSTRAINT mute_problematic_comments_unique UNIQUE (comment_id, user_mute_id)
+);
+
+CREATE INDEX idx_mute_comments_user_mute ON mute_comments(user_mute_id);
+
+
+-----------------------------------------------------------------------------------------------------------
+
+CREATE TABLE bonus_offers (
+    id BIGSERIAL PRIMARY KEY,
+    match_percent BIGINT NOT NULL, -- bonus percentage compared to depo, if 100 -> bonus is 100% of depo (= x2)
+    max_bonus_cents BIGINT NOT NULL, -- limit/cap on the claimable bonus amount
+    fee_base_ppm BIGINT NOT NULL, -- fee that was used as a base to determine the wagering target, useful if needs weights later (avoid to simplify)
+    wagering_base TEXT NOT NULL CHECK (wagering_base IN ('deposit_plus_bonus', 'bonus')), -- base on which wager requirement is computed
+    wagering_times BIGINT NOT NULL, -- Multiplicator of base amount to compute waging requirement
+    max_bet_cents BIGINT NOT NULL, -- maximum bet amount per market to qualify for completing wagering requirement
+    expiry_interval INTERVAL, -- optionnal, give a max time frame (beginning when activated) to spend the bonus 
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE user_bonus (
+    id BIGSERIAL PRIMARY KEY,
+    bonus_offer_id BIGINT NOT NULL REFERENCES bonus_offers(id),
+    user_id UUID NOT NULL REFERENCES users(id),
+    deposit_id UUID NOT NULL REFERENCES deposits(id),
+    status TEXT NOT NULL CHECK(status IN ('active', 'completed', 'expired')),
+    bonus_granted_cents BIGINT NOT NULL CHECK (bonus_granted_cents >= 0),
+    wagering_target_cents BIGINT NOT NULL CHECK (wagering_target_cents >= 0),
+    wagering_progress_cents BIGINT NOT NULL DEFAULT 0 CHECK (wagering_progress_cents >= 0),
+    expires_at TIMESTAMPTZ,
+    activated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at TIMESTAMPTZ,
+    CONSTRAINT user_deposit_unique UNIQUE (user_id, deposit_id)
+);
+
+CREATE TABLE bonus_wager (
+    id BIGSERIAL PRIMARY KEY,
+    user_bonus_id BIGINT NOT NULL REFERENCES user_bonus(id),
+    bet_id UUID NOT NULL REFERENCES bets(id),
+    contrib_wagering_target_cents BIGINT NOT NULL,
+    CONSTRAINT user_bonus_bet_unique UNIQUE (user_bonus_id, bet_id)
+);
+
+CREATE TABLE bonus_wager_outcome ( -- Defines how much 
+    id BIGSERIAL PRIMARY KEY
+);

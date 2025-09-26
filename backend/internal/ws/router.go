@@ -12,19 +12,21 @@ type Message struct {
 	Payload json.RawMessage `json:"payload" validate:"required"`
 }
 
+type WsHandlerFunc func(c *Client, payload string)
+
 type SocketRouter struct {
-	routes   map[string]func(c *Client, payload string)
+	routes   map[string]WsHandlerFunc
 	validate *validator.Validate
 }
 
 func NewSocketRouter(v *validator.Validate) *SocketRouter {
 	return &SocketRouter{
-		routes:   make(map[string]func(c *Client, payload string)),
+		routes:   make(map[string]WsHandlerFunc),
 		validate: v,
 	}
 }
 
-func (r *SocketRouter) AddRouteHandler(routeName string, f func(c *Client, payload string)) {
+func (r *SocketRouter) AddRouteHandler(routeName string, f WsHandlerFunc) {
 	r.routes[routeName] = f
 }
 

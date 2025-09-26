@@ -17,7 +17,7 @@ type UserRepository interface {
 }
 
 type UserHandler struct {
-	userRepo UserRepository
+	UserRepo UserRepository
 }
 
 func NewUserHandler() *UserHandler {

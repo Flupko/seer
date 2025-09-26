@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"reflect"
 	"runtime"
 	"seer/config"
 	"seer/internal/chat"
@@ -17,6 +18,7 @@ import (
 	"seer/internal/repos"
 	"seer/internal/utils"
 	"seer/internal/ws"
+	"strings"
 	"time"
 
 	_ "go.uber.org/automaxprocs"
@@ -65,6 +67,15 @@ func main() {
 	})
 
 	validate := utils.SetupValidator()
+	validate.RegisterTagNameFunc(func(fld reflect.StructField) string {
+		name := strings.SplitN(fld.Tag.Get("json"), ",", 2)[0]
+
+		if name == "-" {
+			return ""
+		}
+
+		return name
+	})
 
 	e := echo.New()
 
@@ -86,6 +97,8 @@ func main() {
 	betManager := market.NewBetManager(db)
 	queryManager := market.NewQueryManager(db, rdb)
 	betLiveManager := market.NewBetLiveManager(context.TODO(), rdb, db, logger)
+	statsManager := market.NewStatManager(context.TODO(), rdb, db, logger)
+	statsManager.Start(context.TODO())
 
 	if err = betLiveManager.PrepopulateLatestBets(initCtx); err != nil {
 		logger.Error("failed to prepopulate latest bets", "error", err)
@@ -100,7 +113,11 @@ func main() {
 	betLiveManager.Start()
 
 	// Chat
-	chatManager := chat.NewChatManager(rdb, db)
+	chatManager := chat.NewChatManager(rdb, db, logger)
+	if err = chatManager.PrepopulateChatRooms(initCtx); err != nil {
+		logger.Error("failed to prepopulate chat rooms", "error", err)
+		os.Exit(1)
+	}
 
 	// Initialize sockets
 	wsHandlers := handlers.NewWsHandler(betLiveManager, marketStateManager, chatManager, validate)
@@ -108,8 +125,8 @@ func main() {
 	wsRouter := ws.NewSocketRouter(validate)
 	wsRouter.AddRouteHandler("market:subscribe", wsHandlers.HandleJoinMarketRooms)
 	wsRouter.AddRouteHandler("bets:subscribe", wsHandlers.HandleJoinBetsRoom)
-	wsRouter.AddRouteHandler("chat:global:subscribe", wsHandlers.HandleJoinGlobalChat)
-	wsRouter.AddRouteHandler("chat:global:send", wsHandlers.HandleSendMessage)
+	wsRouter.AddRouteHandler("chat:subscribe", wsHandlers.HandleJoinChatRoom)
+	wsRouter.AddRouteHandler("chat:send", wsHandlers.RequireAuthentication(wsHandlers.HandleSendMessage))
 
 	upgrader := &websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -123,6 +140,7 @@ func main() {
 	userRepo := repos.NewUserRepo(db)
 	sessionRepo := repos.NewSessionRepo(db)
 	tokenRepo := repos.NewTokenRepo(db)
+	commentRepo := repos.NewCommentRepo(db)
 
 	// Middlewares
 	authMiddleware := middlewares.NewAuthMiddleware(sessionRepo, validate)
@@ -135,8 +153,10 @@ func main() {
 	}
 
 	transactionHandler := handlers.NewTransactionHandler(validate, transactionManager)
-	adminHandler := handlers.NewAdminHandler(validate, adminManager)
+	adminMarketHandler := handlers.NewAdminMarketHandler(validate, adminManager, transactionManager)
+	adminBetHandler := handlers.NewAdminBetHandler(validate, betManager)
 	marketHandler := handlers.NewMarketHandler(validate, marketStateManager, betManager, queryManager, betLiveManager)
+	commentHandler := handlers.NewCommentHandler(validate, commentRepo)
 
 	// Register routes
 	e.GET("/ws", authMiddleware.Authenticate(wstHttpHandler.ServeWS))
@@ -149,10 +169,15 @@ func main() {
 	e.GET("/market/quote", marketHandler.GetQuote)
 	e.POST("/market/bet", authMiddleware.RequireAuthentication(transactionHandler.PlaceBet))
 	e.GET("/my/bets", authMiddleware.RequireAuthentication(marketHandler.GetBetsUser))
-	e.GET("/bets/latest", authMiddleware.RequireAuthentication(marketHandler.GetLatestBets))
 	e.GET("/market/search", authMiddleware.RequireAuthentication(marketHandler.GetMarketsUser))
 
-	e.POST("/admin/market", authMiddleware.RequireRole(adminHandler.CreateMarket, repos.AdminRole))
+	e.POST("/comments", authMiddleware.RequireAuthentication(commentHandler.PostComment))
+	e.DELETE("/comments", authMiddleware.RequireAuthentication(commentHandler.UserDeleteComment))
+	e.GET("/comments", commentHandler.UserGetComments)
+
+	e.POST("/admin/market", authMiddleware.RequireRole(adminMarketHandler.CreateMarket, repos.AdminRole))
+	e.DELETE("admin/comments", authMiddleware.RequireRole(commentHandler.AdminDeleteComment, repos.AdminRole))
+	e.GET("admin/bets", authMiddleware.RequireRole(adminBetHandler.GetBetsAdmin, repos.AdminRole))
 
 	e.Start(":4000")
 

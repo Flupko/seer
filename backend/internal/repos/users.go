@@ -64,11 +64,12 @@ type UserView struct {
 }
 
 type MinimalUser struct {
-	ID       uuid.UUID
-	Username string
-	Role     Role
-	Status   UserStatus
-	Version  int64
+	ID         uuid.UUID
+	Username   string
+	Role       Role
+	Status     UserStatus
+	MutedUntil sql.NullTime
+	Version    int64
 }
 
 var AnonymousUser = &MinimalUser{}
@@ -165,8 +166,9 @@ func (r *UserRepo) Insert(ctx context.Context, user *User) error {
 	}
 
 	query = `
-		INSERT INTO ledger_accounts (user_id, account_type, currency)
-		VALUES($1, 'user', 'USDT')`
+		INSERT INTO ledger_accounts (user_id, account_type, currency, allow_negative_balance, allow_positive_balance) VALUES 
+		($1, 'custody', 'USDT', true, true),
+    	($1, 'liability', 'USDT', false, true);`
 
 	_, err = tx.Exec(ctx, query, user.ID)
 	if err != nil {

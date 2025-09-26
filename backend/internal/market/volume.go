@@ -59,7 +59,7 @@ func (vc *VolumeCalculator) updateVolume24h(ctx context.Context) error {
 		FROM bets tb
 		JOIN outcomes o ON b.outcome_id = o.id 
 		WHERE o.market_id = m.id 
-		AND b.purchase_time >= NOW() - INTERVAL '24 hours'
+		AND b.placed_at >= NOW() - INTERVAL '24 hours'
 	);
 	`
 
