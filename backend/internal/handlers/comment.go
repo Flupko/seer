@@ -55,6 +55,15 @@ func (h *CommentHandler) PostComment(c echo.Context) error {
 	}
 
 	ctx := c.Request().Context()
+
+	exists, err := h.cr.CheckMarketExists(ctx, r.MarketID)
+	if err != nil {
+		return fmt.Errorf("failed to check market exists: %w", err)
+	}
+	if !exists {
+		return echo.NewHTTPError(http.StatusBadRequest, "market doesn't exist")
+	}
+
 	lastCommentTime, err := h.cr.GetLastCommentTimeForUserMarket(ctx, user.ID, r.MarketID)
 	if err != nil && !errors.Is(err, repos.ErrRecordNotFound) {
 		return fmt.Errorf("failed to get last comment time for user: %w", err)
@@ -145,17 +154,17 @@ func (h *CommentHandler) AdminDeleteComment(c echo.Context) error {
 }
 
 type commentSearchUserReq struct {
-	MarketID uuid.UUID `json:"marketId" validate:"required"`
-	ParentID *int64    `json:"parentId"`
+	MarketID uuid.UUID `query:"marketId" validate:"required"`
+	ParentID *int64    `query:"parentId"`
 
-	Page     int64 `json:"page" validate:"min=1"`
-	PageSize int64 `json:"pageSize" validate:"min=4,max=20"`
+	Page     int64 `query:"page" validate:"min=1"`
+	PageSize int64 `query:"pageSize" validate:"min=4,max=20"`
 }
 
 func (h *CommentHandler) UserGetComments(c echo.Context) error {
 
 	r := &commentSearchUserReq{}
-	if err := utils.ParseAndValidateJSON(c.Request().Body, r, h.validate); err != nil {
+	if err := utils.ParseAndValidateQueryParams(c, r, h.validate); err != nil {
 		return err
 	}
 

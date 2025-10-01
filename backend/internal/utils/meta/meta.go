@@ -1,4 +1,4 @@
-package utils
+package meta
 
 type Metadata struct {
 	CurrentPage  int64 `json:"currenPage,omitempty"`

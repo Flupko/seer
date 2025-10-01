@@ -7,6 +7,7 @@ import (
 	"seer/internal/repos"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
@@ -33,6 +34,7 @@ var (
 )
 
 type Client struct {
+	ID     uuid.UUID
 	conn   *websocket.Conn
 	User   *repos.MinimalUser
 	send   chan []byte
@@ -46,6 +48,7 @@ func NewClient(conn *websocket.Conn, hub *Hub, user *repos.MinimalUser) *Client 
 	clientCtx, clientCancel := context.WithCancel(hub.ctx)
 
 	c := &Client{
+		ID:     uuid.New(),
 		conn:   conn,
 		User:   user,
 		send:   make(chan []byte, clientSendBufSize),

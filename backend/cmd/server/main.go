@@ -10,15 +10,17 @@ import (
 	"reflect"
 	"runtime"
 	"seer/config"
+	"seer/internal/balance"
 	"seer/internal/chat"
+	"seer/internal/finance"
 	"seer/internal/geo"
 	"seer/internal/handlers"
 	"seer/internal/market"
 	"seer/internal/middlewares"
+	"seer/internal/notif"
 	"seer/internal/repos"
 	"seer/internal/utils"
 	"seer/internal/ws"
-	"strings"
 	"time"
 
 	_ "go.uber.org/automaxprocs"
@@ -68,13 +70,20 @@ func main() {
 
 	validate := utils.SetupValidator()
 	validate.RegisterTagNameFunc(func(fld reflect.StructField) string {
-		name := strings.SplitN(fld.Tag.Get("json"), ",", 2)[0]
 
-		if name == "-" {
-			return ""
+		if name := fld.Tag.Get("json"); name != "" {
+			return name
 		}
 
-		return name
+		if name := fld.Tag.Get("query"); name != "" {
+			return name
+		}
+
+		if name := fld.Tag.Get("form"); name != "-" {
+			return name
+		}
+
+		return ""
 	})
 
 	e := echo.New()
@@ -112,6 +121,10 @@ func main() {
 
 	betLiveManager.Start()
 
+	// Balance pusher
+	balancePusher := balance.NewBalancePusher(context.TODO(), rdb, db, logger)
+	balancePusher.Start()
+
 	// Chat
 	chatManager := chat.NewChatManager(rdb, db, logger)
 	if err = chatManager.PrepopulateChatRooms(initCtx); err != nil {
@@ -119,14 +132,24 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Finance
+	financeManager := finance.NewFinanceManager(db)
+
+	// Notifications
+	notificationManager := notif.NewNotificationManager(context.TODO(), logger, rdb, db)
+	notificationManager.Start()
+
 	// Initialize sockets
-	wsHandlers := handlers.NewWsHandler(betLiveManager, marketStateManager, chatManager, validate)
-	hub := ws.NewHub(context.TODO(), rdb)
+	onlinePusher := ws.NewOnlinePusher(context.TODO(), rdb, logger)
+	onlinePusher.Start()
+	wsHandlers := handlers.NewWsHandler(betLiveManager, marketStateManager, chatManager, onlinePusher, validate)
+	hub := ws.NewHub(context.TODO(), logger, rdb)
 	wsRouter := ws.NewSocketRouter(validate)
 	wsRouter.AddRouteHandler("market:subscribe", wsHandlers.HandleJoinMarketRooms)
 	wsRouter.AddRouteHandler("bets:subscribe", wsHandlers.HandleJoinBetsRoom)
 	wsRouter.AddRouteHandler("chat:subscribe", wsHandlers.HandleJoinChatRoom)
 	wsRouter.AddRouteHandler("chat:send", wsHandlers.RequireAuthentication(wsHandlers.HandleSendMessage))
+	wsRouter.AddRouteHandler("online_count:subscribe", wsHandlers.HandleJoinOnlineRoom)
 
 	upgrader := &websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -149,14 +172,17 @@ func main() {
 	wstHttpHandler := handlers.NewSocketHandler(hub, wsRouter, upgrader)
 	authHandler, err := handlers.NewAuthHandler(initCtx, validate, logger, userRepo, sessionRepo, tokenRepo, geoService)
 	if err != nil {
-		log.Fatal("Error initializing auth handler:", err)
+		logger.Error("failed to initialize auth handler", "error", err)
 	}
 
-	transactionHandler := handlers.NewTransactionHandler(validate, transactionManager)
+	transactionHandler := handlers.NewTransactionHandler(validate, transactionManager, financeManager)
 	adminMarketHandler := handlers.NewAdminMarketHandler(validate, adminManager, transactionManager)
 	adminBetHandler := handlers.NewAdminBetHandler(validate, betManager)
 	marketHandler := handlers.NewMarketHandler(validate, marketStateManager, betManager, queryManager, betLiveManager)
 	commentHandler := handlers.NewCommentHandler(validate, commentRepo)
+	adminModerateHandler := handlers.NewAdminModerateHandler(validate, repos.NewModerateRepo(db))
+	userModateHandler := handlers.NewUserModerateHandler(validate, repos.NewModerateRepo(db))
+	notifHandler := handlers.NewNotificationHandler(validate, notificationManager)
 
 	// Register routes
 	e.GET("/ws", authMiddleware.Authenticate(wstHttpHandler.ServeWS))
@@ -168,16 +194,30 @@ func main() {
 
 	e.GET("/market/quote", marketHandler.GetQuote)
 	e.POST("/market/bet", authMiddleware.RequireAuthentication(transactionHandler.PlaceBet))
-	e.GET("/my/bets", authMiddleware.RequireAuthentication(marketHandler.GetBetsUser))
-	e.GET("/market/search", authMiddleware.RequireAuthentication(marketHandler.GetMarketsUser))
+	e.GET("/my/bets", authMiddleware.RequireAuthentication(marketHandler.GetPersonnalBets))
+	e.GET("/market/search", marketHandler.GetMarketsUser)
+	e.GET("/bet/:id", marketHandler.PublicGetBet)
+
+	e.GET("/notifications", authMiddleware.RequireAuthentication(notifHandler.GetUnreadNotifications))
+	e.POST("/notifications/read", authMiddleware.RequireAuthentication(notifHandler.ReadNotifications))
 
 	e.POST("/comments", authMiddleware.RequireAuthentication(commentHandler.PostComment))
 	e.DELETE("/comments", authMiddleware.RequireAuthentication(commentHandler.UserDeleteComment))
 	e.GET("/comments", commentHandler.UserGetComments)
 
+	e.POST("/comments/report", authMiddleware.RequireAuthentication(userModateHandler.ReportComment))
+
+	e.GET("/account/balance", authMiddleware.RequireAuthentication(transactionHandler.GetBalance))
+
 	e.POST("/admin/market", authMiddleware.RequireRole(adminMarketHandler.CreateMarket, repos.AdminRole))
+	e.POST("admin/market/settle", authMiddleware.RequireRole(adminMarketHandler.ResolveMarket, repos.AdminRole))
 	e.DELETE("admin/comments", authMiddleware.RequireRole(commentHandler.AdminDeleteComment, repos.AdminRole))
-	e.GET("admin/bets", authMiddleware.RequireRole(adminBetHandler.GetBetsAdmin, repos.AdminRole))
+	e.POST("admin/bets", authMiddleware.RequireRole(adminBetHandler.GetBetsAdmin, repos.AdminRole))
+	e.POST("admin/moderate/mute", authMiddleware.RequireRole(adminModerateHandler.GetUserMute, repos.AdminRole))
+	e.POST("admin/moderate/mute", authMiddleware.RequireRole(adminModerateHandler.MuteUser, repos.AdminRole))
+	e.POST("admin/moderate/mutes", authMiddleware.RequireRole(adminModerateHandler.SearchMutes, repos.AdminRole))
+	e.PATCH("admin/moderate/unmute", authMiddleware.RequireRole(adminModerateHandler.UnmuteUser, repos.AdminRole))
+	e.POST("admin/moderate/reports", authMiddleware.RequireRole(adminModerateHandler.GetReportedComments, repos.AdminRole))
 
 	e.Start(":4000")
 

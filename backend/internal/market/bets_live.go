@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"seer/internal/ps"
 	"seer/internal/utils"
 	"seer/internal/ws"
 	"strings"
@@ -17,17 +18,14 @@ import (
 )
 
 const (
-	betUpdateChannel = "bet:update"
-	betUpdateTimeout = 5 * time.Second
-	latestBetsKey    = "bets:latest" // latest bets
-	highBetsKey      = "bets:high"   // high bets
-	highBetsTreshold = 1_00          // 100 USDT is a high bet
-	nbBetsKept       = 10
+	WsBetsLatestRoom      = "bets:latest"
+	WsBetsHighRoom        = "bets:high"
+	betUpdateTimeout      = 5 * time.Second
+	latestBetsKey         = "bets:latest" // latest bets
+	highBetsKey           = "bets:high"   // high bets
+	highBetsTresholdCents = 100_00        // 100 USDT is a high bet
+	nbBetsKept            = 10
 )
-
-type BetUpdate struct {
-	BetID uuid.UUID `json:"betId"`
-}
 
 type BetLiveManager struct {
 	ctx context.Context
@@ -37,6 +35,8 @@ type BetLiveManager struct {
 	script *redis.Script
 
 	logger *slog.Logger
+
+	sem chan struct{} // Use a semaphore to limit concurrent executions
 }
 
 func NewBetLiveManager(ctx context.Context, rdb *redis.Client, db *pgxpool.Pool, logger *slog.Logger) *BetLiveManager {
@@ -54,6 +54,8 @@ func NewBetLiveManager(ctx context.Context, rdb *redis.Client, db *pgxpool.Pool,
 		rdb:    rdb,
 		script: redis.NewScript(lua),
 		logger: logger,
+
+		sem: make(chan struct{}, 5), // max concurrent executions
 	}
 }
 
@@ -63,7 +65,7 @@ func (blm *BetLiveManager) Start() {
 
 func (blm *BetLiveManager) start() {
 
-	pubsub := blm.rdb.Subscribe(blm.ctx, betUpdateChannel)
+	pubsub := blm.rdb.Subscribe(blm.ctx, ps.BetUpdateChannel)
 	defer func() {
 		if err := pubsub.Close(); err != nil {
 			blm.logger.Error("failed to close pubsub", "error", err)
@@ -80,12 +82,17 @@ func (blm *BetLiveManager) start() {
 				return
 			}
 
-			fmt.Println("received bet update")
+			go func() {
 
-			err := blm.updateBetLive(msg.Payload)
-			if err != nil {
-				blm.logger.Error("could not update bet live", "error", err)
-			}
+				blm.sem <- struct{}{}
+				defer func() { <-blm.sem }()
+
+				err := blm.updateBetLive(msg.Payload)
+				if err != nil {
+					blm.logger.Error("could not update bet live", "error", err)
+				}
+
+			}()
 
 		case <-blm.ctx.Done():
 			blm.logger.Info("bet live manager shutting down", "reason", blm.ctx.Err())
@@ -102,7 +109,7 @@ func (blm *BetLiveManager) updateBetLive(payload string) error {
 		return nil
 	}
 
-	u := &BetUpdate{}
+	u := &ps.BetUpdate{}
 	err := utils.ReadJson(strings.NewReader(payload), u)
 	if err != nil {
 		return fmt.Errorf("failed to parse pubsub payload %q: %w", payload, err)
@@ -128,7 +135,7 @@ func (blm *BetLiveManager) updateBetLive(payload string) error {
 	err1 = blm.updateCacheAndPub(updateCtx, bs, latestBetsKey, WsBetsLatestRoom)
 
 	// Check if high bet
-	if bs.WagerCents >= highBetsTreshold {
+	if bs.WagerCents >= highBetsTresholdCents {
 		err2 = blm.updateCacheAndPub(updateCtx, bs, highBetsKey, WsBetsHighRoom)
 	}
 
@@ -218,7 +225,7 @@ func (blm *BetLiveManager) PrepopulateHighBets(ctx context.Context) error {
         ORDER BY b.placed_at DESC
         LIMIT $2`
 
-	return blm.prepopulateBets(ctx, highBetsKey, query, highBetsTreshold, nbBetsKept)
+	return blm.prepopulateBets(ctx, highBetsKey, query, highBetsTresholdCents, nbBetsKept)
 }
 
 func (blm *BetLiveManager) prepopulateBets(ctx context.Context, cacheKey string, query string, args ...any) error {

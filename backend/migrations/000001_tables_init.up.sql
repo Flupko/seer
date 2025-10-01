@@ -380,6 +380,7 @@ CREATE TABLE bets (
     total_price_paid_cents BIGINT NOT NULL, -- price paid to buy the shares (includes the fee applied)
     fee_paid_cents BIGINT NOT NULL, -- fee deduced from the price paid to calculate payout
     fee_ppm BIGINT NOT NULL, -- fee in percentage, applied to the input price
+    price_ppm BIGINT NOT NULL, -- avg price in ppm (parts per million) at which the shares were bought
     idempotency_key TEXT NOT NULL,
     placed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT bet_idempotency_key_unique UNIQUE (idempotency_key),
@@ -399,6 +400,19 @@ CREATE TABLE outcome_price_history (
     time_recorded TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+
+-----------------------------------------------------------------------------------------------------------
+
+CREATE TABLE notifications (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id),
+    type TEXT NOT NULL CHECK (type IN ('bet_won')),
+    data JSONB NOT NULL, -- additional data depending on the notification type
+    is_read BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_notifications_user_is_read ON notifications(user_id, is_read, created_at DESC);
 
 
 
@@ -421,33 +435,43 @@ CREATE TABLE comments (
 
 -----------------------------------------------------------------------------------------------------------
 
-CREATE TABLE user_mutes (
+CREATE TABLE mutes (
     id BIGSERIAL PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES users(id),
     reason TEXT NOT NULL,
     effective_until TIMESTAMPTZ NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_user_mutes_user_effective_until ON user_mutes(user_id, effective_until DESC);
+CREATE INDEX idx_mutes_user_effective_until ON mutes(user_id, effective_until DESC);
 
 CREATE TABLE mute_chat_messages (
     id BIGSERIAL PRIMARY KEY,
     chat_message_id UUID NOT NULL REFERENCES chat_messages(id),
-    user_mute_id BIGINT NOT NULL REFERENCES user_mutes(id),
-    CONSTRAINT mute_problematic_messages_unique UNIQUE (chat_message_id, user_mute_id)
+    mute_id BIGINT NOT NULL REFERENCES mutes(id),
+    CONSTRAINT mute_messages_unique UNIQUE (chat_message_id, mute_id)
 );
 
-CREATE INDEX idx_mute_chat_messages_user_mute ON mute_chat_messages(user_mute_id);
+CREATE INDEX idx_mute_chat_messages_mute ON mute_chat_messages(mute_id);
 
 CREATE TABLE mute_comments (
     id BIGSERIAL PRIMARY KEY,
     comment_id BIGINT NOT NULL REFERENCES comments(id),
-    user_mute_id BIGINT NOT NULL REFERENCES user_mutes(id),
-    CONSTRAINT mute_problematic_comments_unique UNIQUE (comment_id, user_mute_id)
+    mute_id BIGINT NOT NULL REFERENCES mutes(id),
+    CONSTRAINT mute_comments_unique UNIQUE (comment_id, mute_id)
 );
 
-CREATE INDEX idx_mute_comments_user_mute ON mute_comments(user_mute_id);
+CREATE INDEX idx_mute_comments_mute ON mute_comments(mute_id);
+
+CREATE TABLE report_comments (
+    id BIGSERIAL PRIMARY KEY,
+    reporter_user_id UUID NOT NULL REFERENCES users(id),
+    comment_id BIGINT NOT NULL REFERENCES comments(id),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT report_comments_unique UNIQUE (reporter_user_id, comment_id)
+);
+
+CREATE INDEX idx_report_comments_comment ON report_comments(comment_id);
 
 
 -----------------------------------------------------------------------------------------------------------

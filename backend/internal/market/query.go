@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"seer/internal/utils"
+	"seer/internal/utils/meta"
 	"sort"
 	"strings"
 	"time"
@@ -50,7 +51,7 @@ func (qm *QueryManager) GetAllCategories(ctx context.Context) ([]Category, error
 	return categories, nil
 }
 
-func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skipCache bool) ([]*MarketView, *utils.Metadata, error) {
+func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skipCache bool) ([]*MarketView, *meta.Metadata, error) {
 
 	cacheKey := qm.buildCacheKey(sq)
 
@@ -119,7 +120,7 @@ func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skip
 	}
 
 	if len(markets) == 0 {
-		return []*MarketView{}, &utils.Metadata{}, nil
+		return []*MarketView{}, &meta.Metadata{}, nil
 	}
 
 	// Build market IDs slice
@@ -170,7 +171,7 @@ func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skip
 		m.Categories = categoriesByMarket[m.ID]
 	}
 
-	metadata := utils.CalculateMetadata(totalCount, sq.Page, sq.PageSize)
+	metadata := meta.CalculateMetadata(totalCount, sq.Page, sq.PageSize)
 
 	// Set Redis cache
 	go func() {

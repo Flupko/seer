@@ -6,7 +6,7 @@ from matplotlib.colors import BoundaryNorm, ListedColormap, TwoSlopeNorm
 import matplotlib.patches as mpatches
 
 ALPHA = 0.05
-SEEDING = 100.0 
+SEEDING = 200.0 
 FEE = 0.02
 
 def compute_b(q, alpha):

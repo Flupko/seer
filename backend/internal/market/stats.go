@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"seer/internal/ps"
 	"seer/internal/utils"
 	"strings"
 	"time"
@@ -38,7 +39,7 @@ func (sm *StatManager) Start(ctx context.Context) {
 func (sm *StatManager) start(ctx context.Context) {
 
 	// Track bet updates to update prices
-	pubsub := sm.rdb.Subscribe(sm.ctx, marketUpdateChannel)
+	pubsub := sm.rdb.Subscribe(sm.ctx, ps.MarketUpdateChannel)
 	defer func() {
 		if err := pubsub.Close(); err != nil {
 			sm.logger.Error("failed to close pubsub", "error", err)
@@ -76,7 +77,7 @@ func (sm *StatManager) addMarketPriceHistory(payload string) error {
 		return errors.New("payload cannot be empty")
 	}
 
-	u := &MarketUpdate{}
+	u := &ps.MarketUpdate{}
 	err := utils.ReadJson(strings.NewReader(payload), u)
 	if err != nil {
 		return fmt.Errorf("failed to parse pubsub payload %q: %w", payload, err)

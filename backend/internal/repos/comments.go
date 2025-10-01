@@ -45,7 +45,20 @@ func NewCommentRepo(db *pgxpool.Pool) *CommentRepo {
 	}
 }
 
+func (r *CommentRepo) CheckMarketExists(ctx context.Context, marketID uuid.UUID) (bool, error) {
+
+	var exists bool
+	query := `SELECT EXISTS(SELECT 1 FROM markets WHERE id = $1 AND status != 'draft')`
+	err := r.db.QueryRow(ctx, query, marketID).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("failed to check market exists: %w", err)
+	}
+
+	return exists, nil
+}
+
 func (r *CommentRepo) GetLastCommentTimeForUserMarket(ctx context.Context, userID uuid.UUID, marketID uuid.UUID) (time.Time, error) {
+
 	query := `SELECT created_at 
 	FROM comments
 	WHERE user_id = $1 AND market_id = $2 
@@ -145,7 +158,8 @@ type CommentView struct {
 	UserID   uuid.UUID
 	Username string
 
-	MarketID  uuid.UUID
+	MarketID uuid.UUID
+
 	NbReplies int64
 
 	Content   string
@@ -162,7 +176,7 @@ func (r *CommentRepo) SearchComments(ctx context.Context, cq *CommentQuery) ([]*
 	JOIN users u ON u.id = c.user_id
 	WHERE ($1::uuid IS NULL OR c.user_id = $1)
 	AND ($2::uuid IS NULL OR c.market_id = $2)
-	AND (($3::bigint IS NULL AND c.parent_id IS NULL) OR (c.parent_id = $3))
+	AND (c.parent_id IS NOT DISTINCT FROM $3::bigint)
 	AND c.is_deleted = $4
 	ORDER BY c.created_at DESC
 	LIMIT $5 OFFSET $6`

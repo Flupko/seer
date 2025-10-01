@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"seer/internal/finance"
+	"seer/internal/ps"
 	"slices"
 	"time"
 
@@ -67,6 +68,10 @@ func (tm *TransactionManager) AddBet(ctx context.Context, r BetRequest) (*Bet, e
 					tm.logger.Error("failed to publish market update", "error", err)
 				}
 
+				if err := tm.PublishBalanceUpdate(bet.LedgerAccountID); err != nil {
+					tm.logger.Error("failed to publish balance update", "error", err)
+				}
+
 				if err := tm.PublishBetUpdate(bet.ID); err != nil {
 					tm.logger.Error("failed to publish bet update", "error", err)
 				}
@@ -115,35 +120,13 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) (*Be
 
 	defer tx.Rollback(ctx)
 
-	// Retrieve the user's account
-	userLedgerAccountID, err := finance.GetUserAccountForCurrency(ctx, tx, r.UserID, r.Currency, finance.AccountLiability)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get account: %w", err)
-	}
-
-	query := `
-        SELECT balance
-        FROM ledger_accounts
-        WHERE id = $1
-    `
-
-	var balance int64
-	err = tx.QueryRow(ctx, query, userLedgerAccountID).Scan(&balance)
-	if err != nil {
-		return nil, fmt.Errorf("failed to query user balance: %w", err)
-	}
-
-	if balance < r.BetAmountCents {
-		return nil, finance.ErrInsufficientFunds
-	}
-
 	// Retrieve the market's current state -> prices, fee etc
 	// -> We want to recompute the price
 
 	var m Market
 	var outcomesIDs, qVec []int64
 
-	query = `
+	query := `
 	SELECT m.id, m.house_ledger_account_id, m.alpha_ppm, m.fee_ppm, m.version,
 	array_agg(o.quantity ORDER BY o.id) AS q_vec,
 	array_agg(o.id ORDER BY o.id) AS outcome_ids
@@ -169,9 +152,31 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) (*Be
 		return nil, ErrOutcomeNotFound
 	}
 
+	// Retrieve the user's account
+	userLedgerAccountID, err := finance.GetUserAccountForCurrency(ctx, tx, r.UserID, r.Currency, finance.AccountLiability)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get account: %w", err)
+	}
+
+	query = `
+        SELECT balance
+        FROM ledger_accounts
+        WHERE id = $1
+    `
+
+	var balance int64
+	err = tx.QueryRow(ctx, query, userLedgerAccountID).Scan(&balance)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query user balance: %w", err)
+	}
+
+	if balance < r.BetAmountCents {
+		return nil, finance.ErrInsufficientFunds
+	}
+
 	// Recompute gain in cents for the user
 	// Validate it's equal to the provided BetRequest
-	actualGainCents, feeCents, _, err := PriceAndGainFromBudget(qVec, m.AlphaPPM, m.FeePPM, r.BetAmountCents, idx)
+	actualGainCents, feeCents, pricePPM, err := PriceAndGainFromBudget(qVec, m.AlphaPPM, m.FeePPM, r.BetAmountCents, idx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to recompute actual gain: %w", err)
 	}
@@ -196,17 +201,18 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) (*Be
 		TotalPricePaidCents: r.BetAmountCents,
 		FeePaidCents:        feeCents,
 		FeePPM:              m.FeePPM,
+		PricePPM:            pricePPM,
 		IdempotencyKey:      r.IdempotencyKey,
 	}
 
 	query = `
-	INSERT INTO bets(ledger_account_id, outcome_id, payout_cents, total_price_paid_cents, fee_paid_cents, fee_ppm, idempotency_key)
-	VALUES($1, $2, $3, $4, $5, $6, $7)
+	INSERT INTO bets(ledger_account_id, outcome_id, payout_cents, total_price_paid_cents, fee_paid_cents, fee_ppm, price_ppm, idempotency_key)
+	VALUES($1, $2, $3, $4, $5, $6, $7, $8)
 	ON CONFLICT (idempotency_key) DO NOTHING
-	RETURNING id
+	RETURNING id, placed_at
 	`
 
-	err = tx.QueryRow(ctx, query, bet.LedgerAccountID, bet.OutcomeID, bet.PayoutCents, bet.TotalPricePaidCents, bet.FeePaidCents, bet.FeePPM, bet.IdempotencyKey).Scan(&bet.ID)
+	err = tx.QueryRow(ctx, query, bet.LedgerAccountID, bet.OutcomeID, bet.PayoutCents, bet.TotalPricePaidCents, bet.FeePaidCents, bet.FeePPM, bet.PricePPM, bet.IdempotencyKey).Scan(&bet.ID, &bet.PlacedAt)
 
 	// Already have a bet with this idempotency key
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -310,19 +316,30 @@ func (tm *TransactionManager) SettleMarket(ctx context.Context, marketID uuid.UU
 
 	defer rows.Close()
 
-	for rows.Next() {
-		var ledgerAccountID uuid.UUID
-		var payoutCents int64
+	type payoutInfo struct {
+		ledgerAccountID uuid.UUID
+		payoutCents     int64
+	}
 
-		err = rows.Scan(&ledgerAccountID, &payoutCents)
+	var payouts []payoutInfo
+
+	for rows.Next() {
+		var payout payoutInfo
+
+		err = rows.Scan(&payout.ledgerAccountID, &payout.payoutCents)
 		if err != nil {
 			return fmt.Errorf("failed to scan: %w", err)
 		}
+		payouts = append(payouts, payout)
+	}
 
-		idemKey := fmt.Sprintf("settle:%s:%s", marketID, ledgerAccountID)
-		_, err = finance.TransferMoney(ctx, tx, houseAccountID, ledgerAccountID, payoutCents, idemKey)
+	rows.Close()
+
+	for _, p := range payouts {
+		idemKey := fmt.Sprintf("settle:%s:%s", marketID, p.ledgerAccountID)
+		_, err = finance.TransferMoney(ctx, tx, houseAccountID, p.ledgerAccountID, p.payoutCents, idemKey)
 		if err != nil {
-			return fmt.Errorf("failed to credit account %s: %w", ledgerAccountID, err)
+			return fmt.Errorf("failed to credit account %s: %w", p.ledgerAccountID, err)
 		}
 	}
 
@@ -339,7 +356,17 @@ func (tm *TransactionManager) SettleMarket(ctx context.Context, marketID uuid.UU
 		return fmt.Errorf("failed to finalize settlement: %w", err)
 	}
 
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("committing transaction: %w", err)
+	}
+
+	go func(marketID uuid.UUID) {
+		if err := tm.PublishMarketResolved(winningOutcomeID); err != nil {
+			tm.logger.Error("failed to publish market resolved", "error", err)
+		}
+	}(marketID)
+
+	return nil
 }
 
 func (tm *TransactionManager) CancelMarket(ctx context.Context, marketID uuid.UUID) error {
@@ -432,7 +459,7 @@ func (tm *TransactionManager) PulishUpdateMarket(marketID uuid.UUID) error {
 	updateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	mu := MarketUpdate{
+	mu := ps.MarketUpdate{
 		MarketID: marketID,
 	}
 
@@ -442,7 +469,7 @@ func (tm *TransactionManager) PulishUpdateMarket(marketID uuid.UUID) error {
 		return fmt.Errorf("failed to marshal market update: %w", err)
 	}
 
-	return tm.rdb.Publish(updateCtx, marketUpdateChannel, string(buf)).Err()
+	return tm.rdb.Publish(updateCtx, ps.MarketUpdateChannel, string(buf)).Err()
 
 }
 
@@ -451,7 +478,7 @@ func (tm *TransactionManager) PublishBetUpdate(betID uuid.UUID) error {
 	updateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	bu := BetUpdate{
+	bu := ps.BetUpdate{
 		BetID: betID,
 	}
 
@@ -461,6 +488,42 @@ func (tm *TransactionManager) PublishBetUpdate(betID uuid.UUID) error {
 		return fmt.Errorf("failed to marshal bet update: %w", err)
 	}
 
-	return tm.rdb.Publish(updateCtx, betUpdateChannel, string(buf)).Err()
+	return tm.rdb.Publish(updateCtx, ps.BetUpdateChannel, string(buf)).Err()
+
+}
+
+func (tm *TransactionManager) PublishBalanceUpdate(ledgerAccountID uuid.UUID) error {
+
+	updateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	bu := ps.BalanceUpdate{
+		LedgerAccountID: ledgerAccountID,
+	}
+
+	buf, err := json.Marshal(bu)
+	if err != nil {
+		return fmt.Errorf("failed to marshal balance update: %w", err)
+	}
+
+	return tm.rdb.Publish(updateCtx, "balance:update", string(buf)).Err()
+}
+
+func (tm *TransactionManager) PublishMarketResolved(winningOutcomeID int64) error {
+
+	updateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	mu := ps.MarketResolvedUpdate{
+		WinningOutcomeID: winningOutcomeID,
+	}
+
+	buf, err := json.Marshal(mu)
+
+	if err != nil {
+		return fmt.Errorf("failed to marshal market update: %w", err)
+	}
+
+	return tm.rdb.Publish(updateCtx, ps.MarketResolvedChannel, string(buf)).Err()
 
 }

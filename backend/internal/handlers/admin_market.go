@@ -196,7 +196,7 @@ func (h *AdminMarketHandler) ResolveMarket(c echo.Context) error {
 		return fmt.Errorf("failed to cancel market: %w", err)
 	}
 
-	return c.JSON(http.StatusOK, utils.Envelope{"message": "market successfully cancelled"})
+	return c.JSON(http.StatusOK, utils.Envelope{"message": "market successfully resolved"})
 }
 
 type updateMarketFeeReq struct {

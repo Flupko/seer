@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 var (
@@ -35,6 +36,31 @@ var (
 	ErrInsufficientFunds = errors.New("insufficient funds")
 )
 
+type FinanceManager struct {
+	db *pgxpool.Pool
+}
+
+func NewFinanceManager(db *pgxpool.Pool) *FinanceManager {
+	return &FinanceManager{
+		db: db,
+	}
+}
+
+type LedgerAccountType string
+
+const (
+	AccountCustody         LedgerAccountType = "custody"
+	AccountLiability       LedgerAccountType = "liability"
+	AccountOwnerWithdrawal LedgerAccountType = "owner_withdrawal"
+	AccountHouse           LedgerAccountType = "house"
+)
+
+type Currency string
+
+const (
+	USDT Currency = "USDT"
+)
+
 type LedgerEntry struct {
 	ID                     uuid.UUID
 	AccountID              uuid.UUID
@@ -48,23 +74,14 @@ type LedgerEntry struct {
 
 type Account struct {
 	ID                   uuid.UUID
-	AccountType          string
+	AccountType          LedgerAccountType
 	Balance              int64
-	Currency             string
+	Currency             Currency
 	AllowNegativeBalance bool
 	AllowPostivieBalance bool
 	CreatedAt            time.Time
 	Version              int64
 }
-
-type LedgerAccountType string
-
-const (
-	AccountCustody         LedgerAccountType = "custody"
-	AccountLiability       LedgerAccountType = "liability"
-	AccountOwnerWithdrawal LedgerAccountType = "owner_withdrawal"
-	AccountHouse           LedgerAccountType = "house"
-)
 
 func TransferMoney(ctx context.Context, tx pgx.Tx, fromAccountID uuid.UUID, toAccountID uuid.UUID, amountMinor int64, idempotencyKey string) (uuid.UUID, error) {
 
@@ -124,6 +141,20 @@ func GetUserAccountForCurrency(ctx context.Context, tx pgx.Tx, userID uuid.UUID,
 	}
 
 	return accountID, nil
+}
+
+func (fm *FinanceManager) GetUserBalanceLiabiliy(ctx context.Context, userID uuid.UUID, cur Currency) (int64, error) {
+
+	var balance int64
+	query := `SELECT balance FROM ledger_accounts WHERE user_id = $1 AND currency = $2 AND account_type = 'liability'`
+	err := fm.db.QueryRow(ctx, query, userID, cur).Scan(&balance)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, ErrAccountNotFound
+		}
+		return 0, fmt.Errorf("failed to get user balance: %w", err)
+	}
+	return balance, nil
 }
 
 // func TransferMoney(ctx context.Context, tx pgx.Tx, fromAccountID uuid.UUID, toAccountID uuid.UUID, amountMinor int64, idempotencyKey string) error {

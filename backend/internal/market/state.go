@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"seer/internal/ps"
 	"seer/internal/utils"
 	"seer/internal/ws"
 	"slices"
@@ -24,14 +25,11 @@ type StateManager struct {
 	logger *slog.Logger
 	script *redis.Script
 	ctx    context.Context
-}
 
-type MarketUpdate struct {
-	MarketID uuid.UUID `json:"marketId"`
+	sem chan struct{} // Use a semaphore to limit concurrent executions
 }
 
 const (
-	marketUpdateChannel  = "market:update"
 	marketCacheKeyPrefix = "market_state:"
 	MarketupdateTimeout  = 5 * time.Second
 	cacheTTL             = 30 // 30 seconds
@@ -61,6 +59,8 @@ func NewStateManager(ctx context.Context, rdb *redis.Client, db *pgxpool.Pool, l
 		logger: logger,
 		script: redis.NewScript(lua),
 		ctx:    ctx,
+
+		sem: make(chan struct{}, 20), // max concurrent executions
 	}
 }
 
@@ -70,7 +70,7 @@ func (sm *StateManager) Start() {
 
 func (sm *StateManager) start() {
 
-	pubsub := sm.rdb.Subscribe(sm.ctx, marketUpdateChannel)
+	pubsub := sm.rdb.Subscribe(sm.ctx, ps.MarketUpdateChannel)
 	defer func() {
 		if err := pubsub.Close(); err != nil {
 			sm.logger.Error("failed to close pubsub", "error", err)
@@ -87,10 +87,17 @@ func (sm *StateManager) start() {
 				return
 			}
 
-			err := sm.updateMarketPrices(msg.Payload)
-			if err != nil {
-				sm.logger.Error("could not update market prices", "error", err)
-			}
+			go func() {
+
+				sm.sem <- struct{}{}
+				defer func() { <-sm.sem }()
+
+				err := sm.updateMarketPrices(msg.Payload)
+				if err != nil {
+					sm.logger.Error("could not update market prices", "error", err)
+				}
+
+			}()
 
 		case <-sm.ctx.Done():
 			sm.logger.Info("market state manager shutting down", "reason", sm.ctx.Err())
@@ -106,7 +113,7 @@ func (sm *StateManager) updateMarketPrices(payload string) error {
 		return errors.New("payload cannot be empty")
 	}
 
-	u := &MarketUpdate{}
+	u := &ps.MarketUpdate{}
 	err := utils.ReadJson(strings.NewReader(payload), u)
 	if err != nil {
 		return fmt.Errorf("failed to parse pubsub payload %q: %w", payload, err)

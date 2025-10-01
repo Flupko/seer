@@ -3,8 +3,12 @@ package ws
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"seer/internal/repos"
 	"sync"
+	"time"
 
+	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -14,6 +18,13 @@ import (
 //
 
 const RoomPubSubPrefix = "ws:room:"
+
+const (
+	onlineUsersHeartbeat = 10 * time.Second
+	LoggedInUsersKey     = "ws:loogeded_in_online_users"
+	OnlineUsersKey       = "ws:all_online_users"
+	onlineUserTTL        = 20 * time.Second
+)
 
 type subscriptionReq struct {
 	client *Client
@@ -26,6 +37,8 @@ type broadcastReq struct {
 }
 
 type Hub struct {
+	logger *slog.Logger
+
 	rdb *redis.Client
 
 	ctx    context.Context
@@ -40,8 +53,9 @@ type Hub struct {
 
 	rooms map[string]*roomState
 
-	clients     map[*Client]bool
-	clientRooms map[*Client]map[*roomState]bool
+	clients        map[*Client]bool
+	clientRooms    map[*Client]map[*roomState]bool
+	userRegistered map[uuid.UUID]int32
 
 	wg sync.WaitGroup
 }
@@ -53,9 +67,11 @@ type roomState struct {
 	redisPubSub *redis.PubSub
 }
 
-func NewHub(parent context.Context, rdb *redis.Client) *Hub {
+func NewHub(parent context.Context, logger *slog.Logger, rdb *redis.Client) *Hub {
 	ctx, cancel := context.WithCancel(parent)
 	h := &Hub{
+		logger: logger,
+
 		rdb:    rdb,
 		ctx:    ctx,
 		cancel: cancel,
@@ -66,9 +82,10 @@ func NewHub(parent context.Context, rdb *redis.Client) *Hub {
 		unsubscribe: make(chan subscriptionReq, 1024),
 		broadcast:   make(chan broadcastReq, 4096),
 
-		clients:     make(map[*Client]bool),
-		rooms:       make(map[string]*roomState),
-		clientRooms: make(map[*Client]map[*roomState]bool),
+		clients:        make(map[*Client]bool),
+		rooms:          make(map[string]*roomState),
+		clientRooms:    make(map[*Client]map[*roomState]bool),
+		userRegistered: make(map[uuid.UUID]int32),
 	}
 	go h.start()
 	return h
@@ -79,6 +96,8 @@ func (h *Hub) Close() {
 }
 
 func (h *Hub) start() {
+
+	ticker := time.NewTicker(onlineUsersHeartbeat)
 	for {
 		select {
 		case <-h.ctx.Done():
@@ -98,6 +117,8 @@ func (h *Hub) start() {
 
 		case br := <-h.broadcast:
 			h.handleBroadcast(br)
+		case <-ticker.C:
+			h.updateOnlineUsers()
 		}
 	}
 }
@@ -136,6 +157,12 @@ func (h *Hub) handleRegister(c *Client) {
 	h.clients[c] = true
 	h.clientRooms[c] = make(map[*roomState]bool)
 
+	if c.User != repos.AnonymousUser {
+		h.userRegistered[c.User.ID]++
+	}
+
+	h.handleSubscribe(subscriptionReq{client: c, roomID: fmt.Sprintf("user:%s", c.User.ID)})
+
 }
 
 func (h *Hub) Unregister(c *Client) {
@@ -159,6 +186,13 @@ func (h *Hub) handleUnregister(c *Client) {
 	// If client is already unregistered, skip
 	if _, ok := h.clients[c]; !ok {
 		return
+	}
+
+	if c.User != repos.AnonymousUser {
+		h.userRegistered[c.User.ID]--
+		if h.userRegistered[c.User.ID] <= 0 {
+			delete(h.userRegistered, c.User.ID)
+		}
 	}
 
 	rooms := h.clientRooms[c]
@@ -343,6 +377,42 @@ func (h *Hub) deleteRoom(room *roomState) {
 	// Delete roomID entry
 	delete(h.rooms, room.id)
 
+}
+
+func (h *Hub) updateOnlineUsers() {
+
+	// Collect users, to avoid blocking the main loop on Redis operations (network = slow)
+	loggedInUsers := make([]uuid.UUID, 0, len(h.userRegistered))
+	for userID := range h.userRegistered {
+		loggedInUsers = append(loggedInUsers, userID)
+	}
+
+	allUsers := make([]uuid.UUID, 0, len(h.clients))
+	for c := range h.clients {
+		if c.User != repos.AnonymousUser {
+			allUsers = append(allUsers, c.ID)
+		}
+	}
+
+	go h.UpdateCacheUserConnected(loggedInUsers, LoggedInUsersKey)
+	go h.UpdateCacheUserConnected(allUsers, OnlineUsersKey)
+}
+
+func (h *Hub) UpdateCacheUserConnected(ids []uuid.UUID, key string) {
+	ctx, cancel := context.WithTimeout(h.ctx, 2*time.Second)
+	defer cancel()
+
+	pipe := h.rdb.Pipeline()
+
+	for _, userID := range ids {
+		pipe.HSet(ctx, key, userID.String(), "1")
+		pipe.HExpire(ctx, key, onlineUserTTL, userID.String())
+	}
+
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		h.logger.Error("failed to update online users", "key", key, "error", err)
+	}
 }
 
 func (h *Hub) stop() {

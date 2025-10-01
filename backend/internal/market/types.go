@@ -3,7 +3,7 @@ package market
 import (
 	"database/sql"
 	"fmt"
-	"seer/internal/utils"
+	"seer/internal/utils/meta"
 	"time"
 
 	"github.com/google/uuid"
@@ -70,7 +70,7 @@ type MarketView struct {
 
 type MarketSearchResult struct {
 	Markets  []*MarketView
-	Metadata *utils.Metadata
+	Metadata *meta.Metadata
 }
 
 type Bet struct {
@@ -81,13 +81,18 @@ type Bet struct {
 	TotalPricePaidCents int64
 	FeePaidCents        int64
 	FeePPM              int64
+	PricePPM            int64
 	PlacedAt            time.Time
 	IdempotencyKey      string
 }
 
 type BetView struct {
 	Bet
-	UserID      uuid.UUID
+	User struct {
+		ID       uuid.UUID
+		Username string
+		Hidden   bool
+	}
 	Status      BetStatus
 	MarketID    uuid.UUID
 	MarketName  string
@@ -257,5 +262,5 @@ type BetState struct {
 }
 
 const WsMarketRoomPrefix = "market:"
-const WsBetsLatestRoom = "bets:latest"
-const WsBetsHighRoom = "bets:high"
+
+// Pubsub types

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"seer/internal/repos"
-	"seer/internal/utils"
+	"seer/internal/utils/meta"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -21,11 +21,12 @@ func NewBetManager(db *pgxpool.Pool) *BetManager {
 	}
 }
 
-func (bm *BetManager) SearchBets(ctx context.Context, bsq *BetSearchQuery) ([]BetView, *utils.Metadata, error) {
+func (bm *BetManager) SearchBets(ctx context.Context, bsq *BetSearchQuery) ([]BetView, *meta.Metadata, error) {
 
 	query := fmt.Sprintf(`WITH bets_with_status AS (SELECT
-            b.id AS id, la.user_id AS user_id, 
-            b.payout_cents AS payout_cents, b.total_price_paid_cents AS total_price_paid_cents, b.fee_paid_cents AS fee_paid_cents, b.fee_ppm AS fee_ppm,
+            b.id AS id, 
+            u.id AS user_id, u.username AS username, u.hidden AS hidden,
+            b.payout_cents AS payout_cents, b.total_price_paid_cents AS total_price_paid_cents, b.fee_paid_cents AS fee_paid_cents, b.fee_ppm AS fee_ppm, b.price_ppm AS price_ppm,
             b.placed_at AS placed_at,
             m.id AS market_id, m.name AS market_name,
             o.id AS outcome_id, o.name AS outcome_name, 
@@ -41,11 +42,13 @@ func (bm *BetManager) SearchBets(ctx context.Context, bsq *BetSearchQuery) ([]Be
         JOIN ledger_accounts la ON b.ledger_account_id = la.id
         JOIN outcomes o ON b.outcome_id = o.id
         JOIN markets m ON o.market_id = m.id
+        JOIN users u ON la.user_id = u.id
         LEFT JOIN market_resolutions mr ON mr.market_id = m.id
     )
     SELECT count(*) OVER() AS total_count, 
-        id, user_id, 
-        payout_cents, total_price_paid_cents, fee_paid_cents, fee_ppm,
+        id, 
+        user_id, username, hidden,
+        payout_cents, total_price_paid_cents, fee_paid_cents, fee_ppm, price_ppm,
         placed_at,
         market_id, market_name,
         outcome_id, outcome_name, 
@@ -65,7 +68,7 @@ func (bm *BetManager) SearchBets(ctx context.Context, bsq *BetSearchQuery) ([]Be
             ELSE true
         END
     )
-    ORDER BY %s, id
+    ORDER BY %s, id DESC
     LIMIT $6 OFFSET $7
     `, bsq.GetOrderBy())
 
@@ -85,8 +88,9 @@ func (bm *BetManager) SearchBets(ctx context.Context, bsq *BetSearchQuery) ([]Be
 		var marketStatus string
 
 		err := rows.Scan(&totalCount,
-			&b.ID, &b.UserID,
-			&b.PayoutCents, &b.TotalPricePaidCents, &b.FeePaidCents, &b.FeePPM,
+			&b.ID,
+			&b.User.ID, &b.User.Username, &b.User.Hidden,
+			&b.PayoutCents, &b.TotalPricePaidCents, &b.FeePaidCents, &b.FeePPM, &b.PricePPM,
 			&b.PlacedAt,
 			&b.MarketID, &b.MarketName,
 			&b.OutcomeID, &b.OutcomeName,
@@ -103,7 +107,7 @@ func (bm *BetManager) SearchBets(ctx context.Context, bsq *BetSearchQuery) ([]Be
 		return nil, nil, fmt.Errorf("error iterating bets rows: %w", rows.Err())
 	}
 
-	metadata := utils.CalculateMetadata(totalCount, bsq.Page, bsq.PageSize)
+	metadata := meta.CalculateMetadata(totalCount, bsq.Page, bsq.PageSize)
 
 	return bets, metadata, nil
 
@@ -111,8 +115,9 @@ func (bm *BetManager) SearchBets(ctx context.Context, bsq *BetSearchQuery) ([]Be
 
 func (bm *BetManager) GetBetView(ctx context.Context, betID uuid.UUID) (*BetView, error) {
 
-	query := `SELECT b.id, la.user_id, 
-    b.payout_cents, b.total_price_paid_cents, b.fee_paid_cents, b.fee_ppm,
+	query := `SELECT b.id, 
+    u.id, u.username, u.hidden, 
+    b.payout_cents, b.total_price_paid_cents, b.fee_paid_cents, b.fee_ppm, b.price_ppm,
     b.placed_at,
     m.id AS market_id, m.name AS market_name,
     o.id AS outcome_id, o.name AS outcome_name, 
@@ -127,13 +132,15 @@ func (bm *BetManager) GetBetView(ctx context.Context, betID uuid.UUID) (*BetView
     JOIN ledger_accounts la ON b.ledger_account_id = la.id
     JOIN outcomes o ON b.outcome_id = o.id
     JOIN markets m ON o.market_id = m.id
+    JOIN users u ON la.user_id = u.id
     LEFT JOIN market_resolutions mr ON mr.market_id = m.id
     WHERE b.id = $1
     `
 
 	var b BetView
-	err := bm.db.QueryRow(ctx, query, betID).Scan(&b.ID, &b.UserID,
-		&b.PayoutCents, &b.TotalPricePaidCents, &b.FeePaidCents, &b.FeePPM,
+	err := bm.db.QueryRow(ctx, query, betID).Scan(&b.ID,
+		&b.User.ID, &b.User.Username, &b.User.Hidden,
+		&b.PayoutCents, &b.TotalPricePaidCents, &b.FeePaidCents, &b.FeePPM, &b.PricePPM,
 		&b.PlacedAt,
 		&b.MarketID, &b.MarketName,
 		&b.OutcomeID, &b.OutcomeName,

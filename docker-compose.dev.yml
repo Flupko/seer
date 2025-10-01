@@ -52,12 +52,12 @@ services:
       timeout: 5s
       retries: 5
     
-  grafana:
-    image: grafana/grafana
-    ports:
-      - "3001:3000"
-    networks:
-      - seer-network
+  # grafana:
+  #   image: grafana/grafana
+  #   ports:
+  #     - "3001:3000"
+  #   networks:
+  #     - seer-network
     
   migrate:
     image: migrate/migrate:v4.17.0

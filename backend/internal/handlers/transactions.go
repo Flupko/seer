@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"seer/internal/finance"
 	"seer/internal/market"
 	"seer/internal/utils"
 	"time"
@@ -15,12 +16,14 @@ import (
 type TransactionHandler struct {
 	validate *validator.Validate
 	tm       *market.TransactionManager
+	fm       *finance.FinanceManager
 }
 
-func NewTransactionHandler(validate *validator.Validate, tm *market.TransactionManager) *TransactionHandler {
+func NewTransactionHandler(validate *validator.Validate, tm *market.TransactionManager, fm *finance.FinanceManager) *TransactionHandler {
 	return &TransactionHandler{
 		validate: validate,
 		tm:       tm,
+		fm:       fm,
 	}
 }
 
@@ -64,4 +67,25 @@ func (h *TransactionHandler) PlaceBet(c echo.Context) error {
 	}
 
 	return echo.NewHTTPError(http.StatusOK, "bet succesfully placed")
+}
+
+type balanceReq struct {
+	Currency finance.Currency `query:"currency" validate:"required,oneof=USDT"`
+}
+
+func (h *TransactionHandler) GetBalance(c echo.Context) error {
+	r := &balanceReq{}
+	if err := utils.ParseAndValidateQueryParams(c, r, h.validate); err != nil {
+		return err
+	}
+
+	user := utils.ContextGetUser(c)
+	ctx := c.Request().Context()
+
+	balanceCents, err := h.fm.GetUserBalanceLiabiliy(ctx, user.ID, r.Currency)
+	if err != nil {
+		return fmt.Errorf("failed to get user balance: %w", err)
+	}
+
+	return c.JSON(http.StatusOK, utils.Envelope{"balanceCents": balanceCents})
 }

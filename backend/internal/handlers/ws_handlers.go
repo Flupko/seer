@@ -21,14 +21,16 @@ type WsHandler struct {
 	bm       *market.BetLiveManager
 	msm      *market.StateManager
 	cm       *chat.ChatManager
+	op       *ws.OnlinePusher
 	validate *validator.Validate
 }
 
-func NewWsHandler(bm *market.BetLiveManager, msm *market.StateManager, cm *chat.ChatManager, validate *validator.Validate) *WsHandler {
+func NewWsHandler(bm *market.BetLiveManager, msm *market.StateManager, cm *chat.ChatManager, op *ws.OnlinePusher, validate *validator.Validate) *WsHandler {
 	return &WsHandler{
 		bm:       bm,
 		msm:      msm,
 		cm:       cm,
+		op:       op,
 		validate: validate,
 	}
 }
@@ -337,6 +339,18 @@ func (h *WsHandler) RequireAuthentication(next ws.WsHandlerFunc) ws.WsHandlerFun
 		// Call  next
 		next(c, reqPayload)
 	}
+}
+
+func (h *WsHandler) HandleJoinOnlineRoom(c *ws.Client, reqPayload string) {
+	c.Join(ws.WsOnlineRoom)
+
+	wsBuf, err := h.op.GetOnlineWsMsg()
+	if err != nil {
+		h.sendError(c, ErrCodeInternalError)
+		return
+	}
+
+	c.Send(wsBuf)
 }
 
 type WSError struct {

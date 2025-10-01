@@ -13,7 +13,9 @@ import (
 type Envelope map[string]any
 
 var (
-	ErrInvalidJSON = errors.New("invalid JSON request body")
+	ErrInvalidJSON        = errors.New("invalid JSON request body")
+	ErrInvalidQueryParams = errors.New("invalid query parameters")
+	ErrInvalidPathParams  = errors.New("invalid path parameters")
 )
 
 func ParseAndValidateJSON(src io.Reader, dst any, validate *validator.Validate) error {
@@ -24,7 +26,31 @@ func ParseAndValidateJSON(src io.Reader, dst any, validate *validator.Validate) 
 		return echo.NewHTTPError(http.StatusBadRequest, ErrInvalidJSON.Error())
 	}
 
-	if err := validate.Struct(dst); err != nil {
+	return validateStruct(dst, validate)
+
+}
+
+func ParseAndValidateQueryParams(c echo.Context, dst any, validate *validator.Validate) error {
+
+	if err := (&echo.DefaultBinder{}).BindQueryParams(c, dst); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, ErrInvalidQueryParams.Error())
+	}
+
+	return validateStruct(dst, validate)
+
+}
+
+func ParseAndValidadePathParams(c echo.Context, dst any, validate *validator.Validate) error {
+	if err := (&echo.DefaultBinder{}).BindPathParams(c, dst); err != nil {
+		return echo.NewHTTPError(http.StatusBadRequest, ErrInvalidPathParams.Error())
+	}
+
+	return validateStruct(dst, validate)
+}
+
+func validateStruct(v any, validate *validator.Validate) error {
+
+	if err := validate.Struct(v); err != nil {
 		var validateErrs validator.ValidationErrors
 		if errors.As(err, &validateErrs) {
 			invalidFields := []string{}
@@ -38,8 +64,8 @@ func ParseAndValidateJSON(src io.Reader, dst any, validate *validator.Validate) 
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}
-	return nil
 
+	return nil
 }
 
 func ReadJson(src io.Reader, dst any) error {
