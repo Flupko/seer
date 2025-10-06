@@ -18,6 +18,16 @@ var (
 	ErrInvalidPathParams  = errors.New("invalid path parameters")
 )
 
+type ValidationError struct {
+	Field   string `json:"field"`
+	Message string `json:"message"`
+}
+
+type ErrorResponse struct {
+	Message string            `json:"message"`
+	Errors  []ValidationError `json:"errors,omitempty"`
+}
+
 func ParseAndValidateJSON(src io.Reader, dst any, validate *validator.Validate) error {
 
 	decoder := json.NewDecoder(src)

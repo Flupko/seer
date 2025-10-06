@@ -50,8 +50,7 @@ type User struct {
 	Role            Role
 	ProfileImageKey sql.NullString
 
-	CreatedAt   time.Time
-	LastLoginAt time.Time
+	CreatedAt time.Time
 
 	Status UserStatus
 
@@ -64,6 +63,7 @@ type UserView struct {
 }
 
 type MinimalUser struct {
+	SessionID  uuid.UUID
 	ID         uuid.UUID
 	Username   string
 	Role       Role
@@ -204,13 +204,13 @@ func (r *UserRepo) GetBySubProvider(ctx context.Context, sub string, provider Au
 	return &user, nil
 }
 
-func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*User, error) {
+func (r *UserRepo) GetByEmailOrUsername(ctx context.Context, login string) (*User, error) {
 
 	query := `SELECT u.id, u.status, u.password_hash
 	FROM users u
-	WHERE u.email = $1`
+	WHERE u.email = $1 OR u.username = $1`
 
-	row := r.db.QueryRow(ctx, query, email)
+	row := r.db.QueryRow(ctx, query, login)
 	var user User
 	err := row.Scan(
 		&user.ID,
@@ -233,11 +233,11 @@ func (r *UserRepo) GetByEmail(ctx context.Context, email string) (*User, error) 
 func (r *UserRepo) GetByID(ctx context.Context, userID uuid.UUID) (*UserView, error) {
 
 	query := `SELECT u.id, u.email, u.username, u.password_hash, u.role, u.profile_image_key, 
-	u.created_at, u.last_login_at, 
+	u.created_at, 
 	u.status, u.version,
 	la.balance
 	FROM users u
-	JOIN ledger_accounts la ON u.id = la.user_id AND la.account_type = 'user' AND la.currency = 'USDT'
+	JOIN ledger_accounts la ON u.id = la.user_id AND la.account_type = 'liability' AND la.currency = 'USDT'
 	WHERE u.id = $1`
 
 	row := r.db.QueryRow(ctx, query, userID)
@@ -250,7 +250,6 @@ func (r *UserRepo) GetByID(ctx context.Context, userID uuid.UUID) (*UserView, er
 		&user.Role,
 		&user.ProfileImageKey,
 		&user.CreatedAt,
-		&user.LastLoginAt,
 		&user.Status,
 		&user.Version,
 		&user.Balance,
@@ -272,11 +271,11 @@ func (r *UserRepo) GetByID(ctx context.Context, userID uuid.UUID) (*UserView, er
 func (r *UserRepo) Update(ctx context.Context, user *User) error {
 	query := `
 		UPDATE users
-		SET email = $1, username = $2, password_hash = $3, profile_image_key = $4, last_login_at = $5, status = $6, version = version + 1
-		WHERE id = $7 AND version = $8
+		SET email = $1, username = $2, password_hash = $3, profile_image_key = $4, status = $5, version = version + 1
+		WHERE id = $6 AND version = $7
 		RETURNING version
 	`
-	err := r.db.QueryRow(ctx, query, user.Email, user.Username, user.PasswordHash, user.ProfileImageKey, user.LastLoginAt, user.Status, user.ID, user.Version).Scan(&user.Version)
+	err := r.db.QueryRow(ctx, query, user.Email, user.Username, user.PasswordHash, user.ProfileImageKey, user.Status, user.ID, user.Version).Scan(&user.Version)
 	if err != nil {
 		var pgErr *pgconn.PgError
 		switch {

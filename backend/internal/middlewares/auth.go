@@ -51,14 +51,11 @@ func (am *AuthMiddleware) Authenticate(next echo.HandlerFunc) echo.HandlerFunc {
 		if err != nil {
 			switch {
 			case errors.Is(err, repos.ErrRecordNotFound):
-				return echo.NewHTTPError(http.StatusUnauthorized, "invalid session")
+				c.Set(string(utils.UserContextKey), repos.AnonymousUser)
+				return next(c)
 			default:
 				return err
 			}
-		}
-
-		if user.Status != repos.Activated {
-			return echo.NewHTTPError(http.StatusUnauthorized, "unactivated account")
 		}
 
 		c.Set(string(utils.UserContextKey), user)
@@ -74,6 +71,10 @@ func (am *AuthMiddleware) RequireAuthentication(next echo.HandlerFunc) echo.Hand
 
 		if user == repos.AnonymousUser {
 			return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")
+		}
+
+		if user.Status != repos.Activated {
+			return echo.NewHTTPError(http.StatusUnauthorized, "unactivated account")
 		}
 
 		return next(c)

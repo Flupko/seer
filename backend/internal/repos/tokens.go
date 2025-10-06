@@ -68,7 +68,7 @@ func GenerateToken(userID uuid.UUID, scope TokenScope, duration time.Duration) (
 
 func (r *TokenRepo) Insert(ctx context.Context, token *Token) error {
 	query := `
-		INSERT INTO tokens (user_id, hash, scope, created_at, expiry)
+		INSERT INTO tokens (user_id, hash, scope, created_at, expires_at)
 		VALUES ($1, $2, $3, $4, $5)
 	`
 
@@ -89,10 +89,10 @@ func (r *TokenRepo) GetUserForToken(ctx context.Context, scope TokenScope, token
 
 	tokenHash := sha256.Sum256([]byte(tokenPlainText))
 
-	query := `SELECT u.id, u.role, u.activated, u.version
+	query := `SELECT u.id, u.role, u.status, u.version
 	FROM users u
 	JOIN tokens t ON u.id = t.user_id
-	WHERE t.hash = $1 AND t.scope = $2 AND t.expiry > $3`
+	WHERE t.hash = $1 AND t.scope = $2 AND t.expires_at > $3`
 
 	var user MinimalUser
 

@@ -122,7 +122,7 @@ func (r *SessionRepo) GetUserFromPlain(ctx context.Context, plain string, ip str
         SET last_used_at = NOW(), ip_last = $2
         FROM users AS u
         WHERE s.hash = $1 AND s.expires_at > NOW() AND s.revoked_at IS NULL AND u.id = s.user_id
-        RETURNING u.id, u.username, u.role, u.status, 
+        RETURNING s.id, u.id, u.username, u.role, u.status, 
 		(SELECT effective_until FROM mutes 
 		WHERE user_id = u.id AND effective_until > now() 
 		ORDER BY effective_until DESC LIMIT 1) as muted_until;
@@ -131,6 +131,7 @@ func (r *SessionRepo) GetUserFromPlain(ctx context.Context, plain string, ip str
 	user := &MinimalUser{}
 
 	err := r.db.QueryRow(ctx, query, hash, ip).Scan(
+		&user.SessionID,
 		&user.ID,
 		&user.Username,
 		&user.Role,

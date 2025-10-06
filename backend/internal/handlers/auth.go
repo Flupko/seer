@@ -25,17 +25,17 @@ import (
 )
 
 type UserData struct {
-	Email         string `json:"email"`
-	EmailVerified bool   `json:"emailVerified"`
-	Picture       string `json:"picture"`
-	Sub           string `json:"sub"`
+	Email         string  `json:"email"`
+	EmailVerified bool    `json:"email_verified"`
+	Picture       *string `json:"picture"`
+	Sub           string  `json:"sub"`
 }
 
 type AuthHandler struct {
 	validate    *validator.Validate
 	logger      *slog.Logger
 	providers   map[repos.AuthProvider]*ProviderConfig
-	userRepo    UserRepository
+	userRepo    *repos.UserRepo
 	sessionRepo *repos.SessionRepo
 	tokenRepo   *repos.TokenRepo
 	geoService  *geo.GeoService
@@ -49,19 +49,21 @@ type ProviderConfig struct {
 func NewAuthHandler(ctx context.Context,
 	validate *validator.Validate,
 	logger *slog.Logger,
-	userRepo UserRepository,
+	userRepo *repos.UserRepo,
 	sessionRepo *repos.SessionRepo,
 	tokenRepo *repos.TokenRepo,
 	geoService *geo.GeoService) (*AuthHandler, error) {
 
 	// Setup Google provider
 	googleProvider, err := oidc.NewProvider(ctx, "https://accounts.google.com")
+	_ = err
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize Google provider: %w", err)
 	}
 
 	// Setup Twitch provider
 	twitchProvider, err := oidc.NewProvider(ctx, "https://id.twitch.tv/oauth2")
+	_ = err
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize Twitch provider: %w", err)
 	}
@@ -134,14 +136,15 @@ func (h *AuthHandler) ProviderLogin(c echo.Context) error {
 	})
 
 	authURL := providerCfg.oauth2.AuthCodeURL(state, oauth2.AccessTypeOnline)
-	return c.Redirect(http.StatusFound, authURL)
+	return c.JSON(http.StatusOK, utils.Envelope{"url": authURL})
 }
 
-func (h *AuthHandler) GetAuthCallback(c echo.Context) error {
+func (h *AuthHandler) GetAuthCallback(c echo.Context) (test error) {
 	ctx := c.Request().Context()
 
 	authProvider, err := validateProvider(c.Param("provider"))
 	if err != nil {
+
 		return h.redirectWithError(c, false)
 	}
 
@@ -157,13 +160,14 @@ func (h *AuthHandler) GetAuthCallback(c echo.Context) error {
 
 	// Verify state parameter (CSRF protection)
 	cookieName := fmt.Sprintf("oauth_state_%s", authProvider)
-	storedState, err := h.getAndClearCookie(c, cookieName)
+	storedState, err := utils.GetAndClearCookie(c, cookieName)
 	if err != nil {
 		return h.redirectWithError(c, false)
 	}
 
 	receivedState := c.QueryParam("state")
 	if storedState != receivedState {
+		fmt.Println("state mismatch", "stored", storedState, "received", receivedState)
 		return h.redirectWithError(c, false)
 	}
 
@@ -192,12 +196,14 @@ func (h *AuthHandler) GetAuthCallback(c echo.Context) error {
 
 	// If user is not activated, abort early
 	if !userData.EmailVerified {
+		fmt.Println("email not verified")
 		return h.redirectWithError(c, true)
 	}
 
 	// Get or create user
 	user, err := h.getOrCreateUser(ctx, authProvider, &userData)
 	if err != nil {
+		fmt.Println("get or create user error:", err)
 		return h.redirectWithError(c, true)
 	}
 
@@ -218,9 +224,9 @@ func (h *AuthHandler) GetAuthCallback(c echo.Context) error {
 		}
 
 		// Set profile completion cookie
-		h.setSecureCookie(c, "profile_completion_token", tokenPlain, 5*time.Minute)
+		utils.SetSecureCookie(c, "profile_completion_token", tokenPlain, 5*time.Minute)
 
-		redirectURL := fmt.Sprintf("%s/?SHOW=AUTH_COMPLETION", os.Getenv("FRONTEND_URL"))
+		redirectURL := fmt.Sprintf("%s/?show=profile_completion", os.Getenv("FRONTEND_URL"))
 		return c.Redirect(http.StatusFound, redirectURL)
 
 	case repos.Activated:
@@ -249,36 +255,41 @@ func (h *AuthHandler) CompleteProfile(c echo.Context) error {
 		return err
 	}
 
-	profileToken, err := h.getAndClearCookie(c, "profile_completion_token")
+	profileToken, err := utils.GetCookie(c, "profile_completion_token")
 	if err != nil {
-		return echo.NewHTTPError(http.StatusUnauthorized, "invalid profile token")
+		utils.ClearCookie(c, "profile_completion_token")
+		return echo.NewHTTPError(http.StatusUnauthorized, "Invalid profile token")
 	}
 
 	user, err := h.tokenRepo.GetUserForToken(ctx, repos.ScopeProfileCompletion, profileToken)
 	if err != nil {
 		switch {
 		case errors.Is(err, repos.ErrRecordNotFound):
-			return echo.NewHTTPError(http.StatusUnauthorized, "invalid profile token")
+			utils.ClearCookie(c, "profile_completion_token")
+			return echo.NewHTTPError(http.StatusUnauthorized, "Invalid profile token")
 		default:
 			return err
 		}
 	}
 
 	if user.Status != repos.PendingProfile {
-		return echo.NewHTTPError(http.StatusConflict, "profile already completed")
+		utils.ClearCookie(c, "profile_completion_token")
+		return echo.NewHTTPError(http.StatusConflict, "Profile already completed")
 	}
 
 	err = h.userRepo.CompleteProfile(ctx, user.ID, u.Username, user.Version)
 	if err != nil {
 		switch {
 		case errors.Is(err, repos.ErrEditConflict):
-			return echo.NewHTTPError(http.StatusConflict, "profile modified by another request")
+			utils.ClearCookie(c, "profile_completion_token")
+			return echo.NewHTTPError(http.StatusConflict, "Profile modified by another request")
 		case errors.Is(err, repos.ErrUniqueViolation):
-			return echo.NewHTTPError(http.StatusConflict, "username already taken")
+			return c.JSON(http.StatusUnprocessableEntity, utils.ErrorResponse{
+				Errors: []utils.ValidationError{{Field: "username", Message: "Username already taken"}},
+			})
 		default:
 			return err
 		}
-
 	}
 
 	// Authenticate token
@@ -286,23 +297,35 @@ func (h *AuthHandler) CompleteProfile(c echo.Context) error {
 		return err
 	}
 
-	return c.Redirect(http.StatusFound, os.Getenv("FRONTEND_URL"))
+	utils.ClearCookie(c, "profile_completion_token")
+	return c.JSON(http.StatusOK, utils.Envelope{"message": "successfully authenticated"})
 
 }
 
 type registerUserReq struct {
 	Email    string `json:"email" validate:"required,email"`
-	Username string `json:"username" validate:"required,alphanum"`
+	Username string `json:"username" validate:"required,min=3,alphanum"`
 	Password string `json:"password" validate:"required,min=8,max=49"`
 }
 
 func (h *AuthHandler) RegisterUserByEmail(c echo.Context) error {
 
 	ctx := c.Request().Context()
-
 	r := &registerUserReq{}
+
 	if err := utils.ParseAndValidateJSON(c.Request().Body, r, h.validate); err != nil {
 		return err
+	}
+
+	emailTaken, err := h.userRepo.EmailTaken(ctx, r.Email)
+	if err != nil {
+		return err
+	}
+
+	if emailTaken {
+		return c.JSON(http.StatusUnprocessableEntity, utils.ErrorResponse{
+			Errors: []utils.ValidationError{{Field: "email", Message: "Email already taken"}},
+		})
 	}
 
 	// Check availability for username and email
@@ -312,16 +335,9 @@ func (h *AuthHandler) RegisterUserByEmail(c echo.Context) error {
 	}
 
 	if usernameTaken {
-		return echo.NewHTTPError(http.StatusUnprocessableEntity, "username already taken")
-	}
-
-	emailTaken, err := h.userRepo.EmailTaken(ctx, r.Email)
-	if err != nil {
-		return err
-	}
-
-	if emailTaken {
-		return echo.NewHTTPError(http.StatusUnprocessableEntity, "email already taken")
+		return c.JSON(http.StatusUnprocessableEntity, utils.ErrorResponse{
+			Errors: []utils.ValidationError{{Field: "username", Message: "Username already taken"}},
+		})
 	}
 
 	// Hash password
@@ -346,16 +362,22 @@ func (h *AuthHandler) RegisterUserByEmail(c echo.Context) error {
 		return fmt.Errorf("failed to insert user:%w", err)
 	}
 
+	if err = h.createSession(c, user.ID); err != nil {
+		return err
+	}
+
 	return c.JSON(http.StatusCreated, utils.Envelope{"message": "user successfully registered, pending email verification"})
 
 }
 
 type authenticationUserReq struct {
-	Email    string `json:"email" validate:"required,email"`
-	Password string `json:"password" validate:"required,min=8"`
+	Login    string `json:"login" validate:"required"` // can be email or username
+	Password string `json:"password" validate:"required"`
 }
 
-func (h *AuthHandler) LoginUserByEmail(c echo.Context) error {
+var dummyHash = []byte("$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcA/3Qz3hC5bDjq8s9tcRfWxE7.")
+
+func (h *AuthHandler) LoginUserByEmailOrUsername(c echo.Context) error {
 
 	ctx := c.Request().Context()
 
@@ -364,34 +386,47 @@ func (h *AuthHandler) LoginUserByEmail(c echo.Context) error {
 		return err
 	}
 
-	user, err := h.userRepo.GetByEmail(ctx, r.Email)
-	if err != nil {
-		switch {
-		case errors.Is(err, repos.ErrRecordNotFound):
-			return echo.NewHTTPError(http.StatusUnauthorized, "invalid credentials")
-		default:
-			return err
-		}
+	user, err := h.userRepo.GetByEmailOrUsername(ctx, r.Login)
+
+	hashToCompare := dummyHash
+	var userID uuid.UUID
+
+	if err == nil {
+		hashToCompare = user.PasswordHash
+		userID = user.ID
+	} else if !errors.Is(err, repos.ErrRecordNotFound) {
+		return err
 	}
 
-	match, err := repos.MatchPassword(user.PasswordHash, r.Password)
+	match, err := repos.MatchPassword(hashToCompare, r.Password)
 	if err != nil {
 		return err
 	}
 
-	if !match {
-		return echo.NewHTTPError(http.StatusUnauthorized, "invalid credentials")
+	if userID == uuid.Nil || !match {
+		return echo.NewHTTPError(http.StatusUnauthorized, "Invalid Login or Password")
 	}
 
-	if user.Status != repos.Activated {
-		return echo.NewHTTPError(http.StatusUnauthorized, "unactivated account")
-	}
-
-	if err = h.createSession(c, user.ID); err != nil {
+	if err = h.createSession(c, userID); err != nil {
 		return err
 	}
 
 	return c.JSON(http.StatusOK, utils.Envelope{"message": "successfully authenticated"})
+
+}
+
+func (h *AuthHandler) Logout(c echo.Context) error {
+
+	ctx := c.Request().Context()
+	sessionID := utils.ContextGetUser(c).SessionID
+	err := h.sessionRepo.RevokeSession(ctx, sessionID)
+	if err != nil && !errors.Is(err, repos.ErrRecordNotFound) {
+		fmt.Println("failed to revoke session:", err)
+		return fmt.Errorf("failed to revoke session: %w", err)
+	}
+
+	utils.ClearCookie(c, "sid")
+	return c.JSON(http.StatusOK, utils.Envelope{"message": "successfully logged out"})
 
 }
 
@@ -406,7 +441,10 @@ func (h *AuthHandler) getOrCreateUser(ctx context.Context, provider repos.AuthPr
 				ProviderUserID: userData.Sub,
 				Status:         repos.PendingProfile,
 			}
-			user.ProfileImageKey = sql.NullString{String: userData.Picture, Valid: true}
+
+			if userData.Picture != nil {
+				user.ProfileImageKey = sql.NullString{String: *userData.Picture, Valid: true}
+			}
 
 			if err := h.userRepo.Insert(ctx, user); err != nil {
 				return nil, err
@@ -416,39 +454,6 @@ func (h *AuthHandler) getOrCreateUser(ctx context.Context, provider repos.AuthPr
 		}
 	}
 	return user, nil
-}
-
-func (h *AuthHandler) setSecureCookie(c echo.Context, name, value string, maxAge time.Duration) {
-	c.SetCookie(&http.Cookie{
-		Name:     name,
-		Value:    value,
-		HttpOnly: true,
-		Secure:   config.IsProduction, // Must be true in production (HTTPS)
-		SameSite: http.SameSiteStrictMode,
-		Path:     "/",
-		MaxAge:   int(maxAge.Seconds()),
-	})
-}
-
-func (h *AuthHandler) getAndClearCookie(c echo.Context, cookieName string) (string, error) {
-
-	cookie, err := c.Cookie(cookieName)
-
-	if err != nil {
-		return "", err
-	}
-
-	// Clear the state cookie
-	c.SetCookie(&http.Cookie{
-		Name:     cookieName,
-		Value:    "",
-		MaxAge:   -1,
-		Path:     "/",
-		HttpOnly: true,
-		SameSite: http.SameSiteStrictMode,
-	})
-
-	return cookie.Value, nil
 }
 
 func (h *AuthHandler) redirectWithError(c echo.Context, showError bool) error {
@@ -498,7 +503,7 @@ func (h *AuthHandler) createSession(c echo.Context, userID uuid.UUID) error {
 	}()
 
 	// Set session cookie
-	h.setSecureCookie(c, "sid", sessionPlain, 14*24*time.Hour)
+	utils.SetSecureCookie(c, "sid", sessionPlain, 14*24*time.Hour)
 	return nil
 }
 

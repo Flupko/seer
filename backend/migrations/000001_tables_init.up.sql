@@ -4,7 +4,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp" WITH SCHEMA public;
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     email CITEXT UNIQUE NOT NULL,
-    username TEXT UNIQUE NOT NULL,
+    username TEXT UNIQUE,
 
     password_hash BYTEA,
     provider_id TEXT NOT NULL CHECK (provider_id IN ('credentials', 'google', 'twitch')),
@@ -16,7 +16,6 @@ CREATE TABLE users (
     hidden BOOLEAN NOT NULL DEFAULT FALSE,
 
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    last_login_at TIMESTAMPTZ,
 
     status TEXT NOT NULL CHECK (status IN ('pending_email_verification', 'pending_profile_completion', 'activated')),
 

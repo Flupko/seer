@@ -30,6 +30,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/joho/godotenv"
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -87,6 +88,12 @@ func main() {
 	})
 
 	e := echo.New()
+
+	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+		AllowOrigins:     []string{"http://localhost:3000"},
+		AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept},
+		AllowCredentials: true,
+	}))
 
 	// Geo serrvice
 	ip2locationDb, err := ip2location.OpenDB("./IP2LOCATION-LITE-DB3.IPV6.BIN")
@@ -183,6 +190,11 @@ func main() {
 	adminModerateHandler := handlers.NewAdminModerateHandler(validate, repos.NewModerateRepo(db))
 	userModateHandler := handlers.NewUserModerateHandler(validate, repos.NewModerateRepo(db))
 	notifHandler := handlers.NewNotificationHandler(validate, notificationManager)
+	userHandler := handlers.NewUserHandler(userRepo)
+
+	e.RouteNotFound("/*", func(c echo.Context) error {
+		return c.NoContent(http.StatusNotFound)
+	})
 
 	// Register routes
 	e.GET("/ws", authMiddleware.Authenticate(wstHttpHandler.ServeWS))
@@ -190,7 +202,14 @@ func main() {
 	e.GET("/auth/:provider", authHandler.ProviderLogin)
 	e.GET("/auth/:provider/callback", authHandler.GetAuthCallback)
 	e.POST("/auth/register", authHandler.RegisterUserByEmail)
-	e.POST("/auth/login", authHandler.LoginUserByEmail)
+	e.POST("/auth/login", authHandler.LoginUserByEmailOrUsername)
+	e.POST("/auth/complete-profile", authHandler.CompleteProfile)
+	e.POST("/auth/logout", authMiddleware.RequireAuthentication(authHandler.Logout))
+
+	// Protected routes
+	// User related
+
+	e.GET("/user/me", authMiddleware.Authenticate(userHandler.UserMe))
 
 	e.GET("/market/quote", marketHandler.GetQuote)
 	e.POST("/market/bet", authMiddleware.RequireAuthentication(transactionHandler.PlaceBet))
@@ -211,6 +230,10 @@ func main() {
 
 	e.POST("/admin/market", authMiddleware.RequireRole(adminMarketHandler.CreateMarket, repos.AdminRole))
 	e.POST("admin/market/settle", authMiddleware.RequireRole(adminMarketHandler.ResolveMarket, repos.AdminRole))
+	e.PATCH("admin/market/resume", authMiddleware.RequireRole(adminMarketHandler.ResumeMarket, repos.AdminRole))
+	e.PATCH("admin/market/pause", authMiddleware.RequireRole(adminMarketHandler.PauseMarket, repos.AdminRole))
+	e.PATCH("admin/market/fee", authMiddleware.RequireRole(adminMarketHandler.UpdateMarketFee, repos.AdminRole))
+
 	e.DELETE("admin/comments", authMiddleware.RequireRole(commentHandler.AdminDeleteComment, repos.AdminRole))
 	e.POST("admin/bets", authMiddleware.RequireRole(adminBetHandler.GetBetsAdmin, repos.AdminRole))
 	e.POST("admin/moderate/mute", authMiddleware.RequireRole(adminModerateHandler.GetUserMute, repos.AdminRole))

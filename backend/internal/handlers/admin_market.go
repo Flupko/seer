@@ -133,7 +133,7 @@ func (h *AdminMarketHandler) PauseMarket(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "market cancelled or closed")
 	}
 
-	if err := h.am.ResumeMarket(ctx, r.MarketID); err != nil {
+	if err := h.am.PauseMarket(ctx, r.MarketID); err != nil {
 		return fmt.Errorf("failed to pause market: %w", err)
 	}
 
