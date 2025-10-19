@@ -1,10 +1,9 @@
-import Button from "../Button";
-import Google from "../../../public/google.svg"
-import Twitch from "../../../public/twitch.svg"
-import { useState } from "react";
 import { API_BASE_URL } from "@/lib/api";
+import { useState } from "react";
+import Google from "../../../public/google.svg";
+import Twitch from "../../../public/twitch.svg";
+import Button from "../Button";
 import { toastStyled } from "../Toast";
-import { ca } from "zod/locales";
 
 export default function Providers() {
 
@@ -12,20 +11,20 @@ export default function Providers() {
     const handleClick = async (provider: 'google' | 'twitch') => {
         setLoadingProvider(provider);
         try {
-             const response = await fetch(`${API_BASE_URL}/auth/${provider}`, {credentials: "include"});
-        if (!response.ok) {
-            setLoadingProvider(null);
-            toastStyled("Failed to authenticate", { type: "error" });
-            return;
-        }
-        const { url } = await response.json();
-        // Redirect to OAuth provider
-        window.location.href = url;
+            const response = await fetch(`${API_BASE_URL}/auth/provider/${provider}`, { credentials: "include" });
+            if (!response.ok) {
+                setLoadingProvider(null);
+                toastStyled("Failed to authenticate", { type: "error" });
+                return;
+            }
+            const { url } = await response.json();
+            // Redirect to OAuth provider
+            window.location.href = url;
         } catch (error) {
             setLoadingProvider(null);
             toastStyled("Failed to authenticate", { type: "error" });
         }
-       
+
     }
     return (
         <div className="space-y-6">

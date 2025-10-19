@@ -1,8 +1,13 @@
+import { useModalStore } from "@/lib/stores/modal";
 import { AnimatePresence, LayoutGroup, motion, useDragControls } from "motion/react";
-import { modalComponents, useModal } from "./Modal";
+import { modalComponents } from "./Modal";
 
 export default function MobileDrawer() {
-    const { currentModal, modalData, closeModal } = useModal();
+
+    const currentModal = useModalStore((state) => state.currentModal);
+    const modalData = useModalStore((state) => state.modalData);
+    const closeModal = useModalStore((state) => state.closeModal);
+
     const ModalContent = currentModal ? modalComponents[currentModal].content : null;
     const height = currentModal ? modalComponents[currentModal].height : null
     const controls = useDragControls();
@@ -14,8 +19,8 @@ export default function MobileDrawer() {
                     <div>
                         {/* Backdrop */}
                         <motion.div
-                        key="mobile-drawer-root"
-                            className="fixed inset-0 z-40 bg-neutral-950/70"
+                            key="mobile-drawer-root"
+                            className="fixed inset-0 z-[1000] bg-neutral-950/70"
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
@@ -24,7 +29,7 @@ export default function MobileDrawer() {
 
                         {/* Sheet */}
                         <motion.div
-                            className={`fixed bottom-0 left-0 right-0 z-50 w-full ${height} max-h-[calc(100%-5rem)] bg-gray-900 flex flex-col overflow-hidden`}
+                            className={`fixed bottom-0 left-0 right-0 z-[10000] w-full ${height} max-h-[calc(100%-5rem)] bg-gray-900 flex flex-col overflow-hidden`}
                             initial={{ y: "100%" }}
                             animate={{ y: 0 }}
                             exit={{ y: "100%" }}
@@ -55,7 +60,7 @@ export default function MobileDrawer() {
 
                             {/* Scrollable content */}
                             <div className="min-h-0 overflow-y-auto overscroll-contain">
-                                {ModalContent && <ModalContent data={modalData} />}
+                                {ModalContent && <ModalContent {...modalData} />}
                             </div>
                         </motion.div>
                     </div>

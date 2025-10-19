@@ -83,11 +83,14 @@ func (c *Client) SendBatchJSON(vals []any) error {
 
 	var b bytes.Buffer
 	for i, v := range vals {
+
 		enc, err := json.Marshal(v)
 		if err != nil {
 			return err
 		}
+
 		b.Write(enc)
+
 		if i < len(vals)-1 {
 			b.WriteByte('\n')
 		}
@@ -128,7 +131,7 @@ func (c *Client) readPump(router *SocketRouter) {
 		if err != nil {
 			break
 		}
-		router.routeMessage(c, message)
+		go router.routeMessage(c, message)
 	}
 }
 

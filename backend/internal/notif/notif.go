@@ -137,7 +137,7 @@ func (nm *NotificationManager) NotifyMarketWinningUsers(payload string) error {
 	// Retrieve winning bets and user info
 
 	query := `
-	SELECT u.id, m.id, m.name, b.id, o.id, o.name, b.total_price_paid_cents, b.payout_cents
+	SELECT u.id, m.id, m.name, b.id, o.id, o.name, b.total_price_paid, b.payout
 	FROM bets b
 	JOIN outcomes o ON b.outcome_id = o.id
 	JOIN markets m ON o.market_id = m.id

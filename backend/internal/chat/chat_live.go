@@ -32,7 +32,6 @@ const (
 	cacheKeyPrefixRate     = "rate:user:"
 	cacheKeyPrefixChat     = "chat:"
 	cacheKeyPrefixChatList = "chat:list:"
-	WSChatRoomPrefix       = "chat:"
 	maxLenChat             = 20
 	bucketCapacity         = 10 // Burst of 10 messages
 	ratePerMin             = 30 // 1 message every 2 seconds
@@ -53,8 +52,9 @@ type ChatMessageView struct {
 	CreatedAt time.Time `json:"createdAt"`
 	Type      string    `json:"type"` // "user" or "system"
 	User      struct {
-		ID       uuid.UUID `json:"id"`
-		Username string    `json:"username"`
+		ID              uuid.UUID `json:"id"`
+		Username        string    `json:"username"`
+		ProfileImageKey string    `json:"profileImageKey"`
 	}
 }
 
@@ -142,7 +142,7 @@ func (cm *ChatManager) PrepopulateChatRooms(ctx context.Context) error {
 
 func (cm *ChatManager) prepopulateChatRoom(ctx context.Context, c *Chat) error {
 
-	query := `SELECT cm.id, cm.chat_id, cr.slug, cm.content, cm.created_at, u.id, u.username
+	query := `SELECT cm.id, cm.chat_id, cr.slug, cm.content, cm.created_at, u.id, u.username, COALESCE(u.profile_image_key, '')
 	FROM chat_messages cm
 	JOIN users u ON cm.user_id = u.id
 	JOIN chat_rooms cr ON cm.chat_id = cr.id
@@ -161,7 +161,7 @@ func (cm *ChatManager) prepopulateChatRoom(ctx context.Context, c *Chat) error {
 
 	for rows.Next() {
 		m := &ChatMessageView{}
-		if err = rows.Scan(&m.ID, &m.ChatID, &m.ChatSlug, &m.Content, &m.CreatedAt, &m.User.ID, &m.User.Username); err != nil {
+		if err = rows.Scan(&m.ID, &m.ChatID, &m.ChatSlug, &m.Content, &m.CreatedAt, &m.User.ID, &m.User.Username, &m.User.ProfileImageKey); err != nil {
 			return fmt.Errorf("failed to scan message: %w", err)
 		}
 		m.Type = "user"
@@ -222,9 +222,6 @@ func (cm *ChatManager) SendMessage(ctx context.Context, user *repos.MinimalUser,
 		Type:      "user",
 	}
 
-	chatMsg.User.ID = user.ID
-	chatMsg.User.Username = user.Username
-
 	data, err := json.Marshal(chatMsg)
 	if err != nil {
 		return false, fmt.Errorf("failed to marshal chat msg: %w", err)
@@ -249,12 +246,23 @@ func (cm *ChatManager) SendMessage(ctx context.Context, user *repos.MinimalUser,
 
 	wsChatRoom := BuildWSChatRoom(chatSlug)
 
-	wsMsg := ws.Message{
-		Type:    wsChatRoom,
-		Payload: data,
+	wsPayload := ws.ChatMessage{
+		ID:        chatMsg.ID,
+		ChatSlug:  chatMsg.ChatSlug,
+		Content:   chatMsg.Content,
+		CreatedAt: chatMsg.CreatedAt,
+		Type:      chatMsg.Type,
+		User: ws.UserState{
+			ID:       user.ID,
+			Username: user.Username,
+		},
 	}
 
-	wsBuf, err := json.Marshal(wsMsg)
+	if user.ProfileImageKey.Valid {
+		wsPayload.User.ProfileImageKey = user.ProfileImageKey.String
+	}
+
+	wsBuf, err := utils.WsMessage(wsChatRoom, wsPayload)
 	if err != nil {
 		return false, fmt.Errorf("failed to marshall websocket message: %w", err)
 	}
@@ -338,5 +346,5 @@ func buildCacheKeyRateUser(userID uuid.UUID) string {
 }
 
 func BuildWSChatRoom(chatSlug string) string {
-	return fmt.Sprintf("%s%s", WSChatRoomPrefix, chatSlug)
+	return fmt.Sprintf("%s%s", ws.ChatRoomPrefix, chatSlug)
 }

@@ -18,7 +18,6 @@ type OnlinePusher struct {
 
 const (
 	onlinePushDelay = 10 * time.Second
-	WsOnlineRoom    = "online_users"
 )
 
 func NewOnlinePusher(ctx context.Context, rdb *redis.Client, logger *slog.Logger) *OnlinePusher {
@@ -31,10 +30,6 @@ func NewOnlinePusher(ctx context.Context, rdb *redis.Client, logger *slog.Logger
 
 func (op *OnlinePusher) Start() {
 	go op.pushOnlineCount()
-}
-
-type onlineUpdate struct {
-	UsersOnlineCount int64 `json:"usersOnlineCount"`
 }
 
 func (op *OnlinePusher) pushOnlineCount() {
@@ -51,7 +46,7 @@ func (op *OnlinePusher) pushOnlineCount() {
 				continue
 			}
 
-			err = op.rdb.Publish(op.ctx, fmt.Sprintf("%s%s", RoomPubSubPrefix, WsOnlineRoom), wsBuf).Err()
+			err = op.rdb.Publish(op.ctx, fmt.Sprintf("%s%s", RoomPubSubPrefix, OnlineRoom), wsBuf).Err()
 			if err != nil {
 				op.logger.Error("failed to publish online users count", "error", err)
 			}
@@ -68,7 +63,7 @@ func (op *OnlinePusher) GetOnlineWsMsg() ([]byte, error) {
 		return nil, fmt.Errorf("failed to retrieve online users count from redis: %w", err)
 	}
 
-	update := onlineUpdate{
+	update := OnlineUpdate{
 		UsersOnlineCount: count,
 	}
 
@@ -78,7 +73,7 @@ func (op *OnlinePusher) GetOnlineWsMsg() ([]byte, error) {
 	}
 
 	wsMsg := Message{
-		Type:    WsOnlineRoom,
+		Type:    OnlineRoom,
 		Payload: data,
 	}
 

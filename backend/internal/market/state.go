@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"seer/internal/numeric"
 	"seer/internal/ps"
 	"seer/internal/utils"
 	"seer/internal/ws"
@@ -92,7 +93,7 @@ func (sm *StateManager) start() {
 				sm.sem <- struct{}{}
 				defer func() { <-sm.sem }()
 
-				err := sm.updateMarketPrices(msg.Payload)
+				err := sm.updateMarketState(msg.Payload)
 				if err != nil {
 					sm.logger.Error("could not update market prices", "error", err)
 				}
@@ -107,7 +108,7 @@ func (sm *StateManager) start() {
 	}
 }
 
-func (sm *StateManager) updateMarketPrices(payload string) error {
+func (sm *StateManager) updateMarketState(payload string) error {
 
 	if payload == "" {
 		return errors.New("payload cannot be empty")
@@ -143,28 +144,22 @@ func (sm *StateManager) updateMarketPrices(payload string) error {
 		return nil
 	}
 
-	wsPayload := WSPayloadMarketUpdate{
+	wsPayload := ws.MarketUpdate{
 		ID:      ms.ID,
 		Version: ms.Version,
 	}
 
 	for i := range len(ms.QVec) {
 		wsPayload.Outcomes = append(wsPayload.Outcomes,
-			WSPayloadOutcomeUpdate{
-				ID:      ms.OutcomeIDs[i],
-				ProbPPM: ms.PricesPPM[i],
-				Active:  ms.OutcomeActive[i],
+			ws.OutcomeUpdate{
+				ID:       ms.OutcomeIDs[i],
+				Quantity: ms.QVec[i],
 			})
 	}
 
-	buf, err := json.Marshal(wsPayload)
+	wsMsg, err := utils.WsMessage(ws.MarketsUpdateRoom, wsPayload)
 	if err != nil {
-		return fmt.Errorf("failed to marshal ws payload: %w", err)
-	}
-
-	wsMsg := ws.Message{
-		Type:    "market_update",
-		Payload: buf,
+		return fmt.Errorf("failed to build websocket message: %w", err)
 	}
 
 	wsBuf, err := json.Marshal(wsMsg)
@@ -172,34 +167,34 @@ func (sm *StateManager) updateMarketPrices(payload string) error {
 		return fmt.Errorf("failed to marshal websocket message: %w", err)
 	}
 
-	if err := sm.rdb.Publish(updateCtx, fmt.Sprintf("%s%s%s", ws.RoomPubSubPrefix, WsMarketRoomPrefix, ms.ID), string(wsBuf)).Err(); err != nil {
+	if err := sm.rdb.Publish(updateCtx, ws.MarketsUpdateRoom, string(wsBuf)).Err(); err != nil {
 		return fmt.Errorf("publish prices: %w", err)
 	}
 	return nil
 }
 
-// Returns (gainCents, pricePPM, err)
-func (sm *StateManager) GetQuoteForBet(ctx context.Context, betAmountCents int64, marketID uuid.UUID, outcomeID int64) (int64, int64, error) {
+// Returns (gainCents, avgPrice, err)
+func (sm *StateManager) GetQuoteForBet(ctx context.Context, betAmount *numeric.BigDecimal, marketID uuid.UUID, outcomeID int64) (*numeric.BigDecimal, *numeric.BigDecimal, error) {
 
 	ms, err := sm.GetMarketState(ctx, marketID)
 
 	if err != nil {
-		return 0, 0, err
+		return nil, nil, err
 	}
 
 	idx := slices.Index(ms.OutcomeIDs, outcomeID)
 
 	if idx == -1 {
-		return 0, 0, ErrOutcomeNotFound
+		return nil, nil, ErrOutcomeNotFound
 	}
 
-	gainCents, _, pricePPM, err := PriceAndGainFromBudget(ms.QVec, ms.AlphaPPM, ms.FeePPM, betAmountCents, idx)
+	_, gain, _, avgPrice, err := PossibleGainFeePriceForBuy(ms.QVec, idx, ms.Alpha, ms.Fee, betAmount, ms.CapPrice)
 
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to compute gain: %w", err)
+		return nil, nil, fmt.Errorf("failed to compute gain: %w", err)
 	}
 
-	return gainCents, pricePPM, nil
+	return gain, avgPrice, nil
 }
 
 func (sm *StateManager) GetMarketState(ctx context.Context, marketID uuid.UUID) (*MarketState, error) {
@@ -209,7 +204,7 @@ func (sm *StateManager) GetMarketState(ctx context.Context, marketID uuid.UUID) 
 	}
 
 	// Try to hit the cache first
-	cacheKey := fmt.Sprintf("%s%s", marketCacheKeyPrefix, marketID)
+	cacheKey := buildCacheKeyRedis(marketID)
 
 	cache, err := sm.rdb.HGet(ctx, cacheKey, "payload").Result()
 	// If there's an error (= cache not set, or redis has issues) simply fallback to the DB
@@ -246,15 +241,15 @@ func (sm *StateManager) retrieveMarketStateDB(ctx context.Context, marketID uuid
 	ms := &MarketState{}
 
 	query := `
-	SELECT m.id, m.version,  m.alpha_ppm, m.fee_ppm, 
+	SELECT m.id, m.version, m.alpha, m.fee, m.cap_price,
 	array_agg(o.quantity ORDER BY o.id) AS q_vec,
 	array_agg(o.id ORDER BY o.id) AS outcome_ids
 	FROM markets m
 	JOIN outcomes o ON o.market_id = m.id
 	WHERE m.id = $1 AND status = 'opened' AND (close_time IS NULL OR close_time > NOW())
-	GROUP BY m.id, m.version, m.alpha_ppm, m.fee_ppm`
+	GROUP BY m.id, m.version, m.alpha, m.fee`
 
-	if err := sm.db.QueryRow(ctx, query, marketID).Scan(&ms.ID, &ms.Version, &ms.AlphaPPM, &ms.FeePPM, &ms.QVec, &ms.OutcomeIDs); err != nil {
+	if err := sm.db.QueryRow(ctx, query, marketID).Scan(&ms.ID, &ms.Version, &ms.Alpha, &ms.Fee, &ms.CapPrice, &ms.QVec, &ms.OutcomeIDs); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrMarketNotFound
 		}
@@ -265,13 +260,12 @@ func (sm *StateManager) retrieveMarketStateDB(ctx context.Context, marketID uuid
 		return nil, errors.New("inconsistent outcomes for market")
 	}
 
-	pricesPPM, outcomeActive, err := PricesPPM(ms.QVec, ms.AlphaPPM, ms.FeePPM)
+	prices, err := PricesBD(ms.QVec, ms.Alpha, ms.Fee)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compute prices for market %s: %w", ms.ID, err)
 	}
 
-	ms.PricesPPM = pricesPPM
-	ms.OutcomeActive = outcomeActive
+	ms.Prices = prices
 
 	return ms, nil
 }
@@ -283,7 +277,7 @@ func (sm *StateManager) setRedisCacheMarketState(ctx context.Context, ms *Market
 		return 0, fmt.Errorf("failed to marshal market state: %w", err)
 	}
 
-	cacheKey := fmt.Sprintf("%s%s", marketCacheKeyPrefix, ms.ID)
+	cacheKey := buildCacheKeyRedis(ms.ID)
 	changed, err := sm.script.Run(ctx, sm.rdb, []string{cacheKey}, ms.Version, data, cacheTTL).Int()
 	if err != nil {
 		return 0, fmt.Errorf("failed to execute redis lua script: %w", err)
@@ -318,4 +312,8 @@ func (sm *StateManager) GetValidMarkets(ctx context.Context, marketIDs []uuid.UU
 	}
 
 	return validMarkets, nil
+}
+
+func buildCacheKeyRedis(marketID uuid.UUID) string {
+	return fmt.Sprintf("%s%s", marketCacheKeyPrefix, marketID)
 }

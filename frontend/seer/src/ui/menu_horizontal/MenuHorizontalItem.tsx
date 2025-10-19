@@ -16,7 +16,7 @@ export default function MenuHorizontalItem({ active = false, children, ...rest }
         hover:text-white
         rounded-md 
         transition-all 
-        ${active ? "bg-gray-600 text-white" : "text-gray-100 active:scale-90 active:brightness-70 hover:bg-gray-500 cursor-pointer"}
+        ${active ? "bg-gray-600 text-white" : "text-gray-200 active:scale-95 hover:bg-primary-blue active:bg-blue-pressed cursor-pointer"}
         duration-200
         `}
             {...rest}>

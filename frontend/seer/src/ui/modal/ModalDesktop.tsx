@@ -1,13 +1,16 @@
-import { AnimatePresence, LayoutGroup, motion } from "motion/react"
-import ToolTip from "../ToolTip"
-import { X } from "lucide-react"
-import { modalComponents, useModal } from "./Modal";
-import { div } from "motion/react-client";
+import { useModalStore } from '@/lib/stores/modal';
+import { X } from "lucide-react";
+import { AnimatePresence, LayoutGroup, motion } from "motion/react";
+import ToolTip from "../ToolTip";
+import { modalComponents } from "./Modal";
 
 
 export default function ModalDesktop() {
 
-    const { currentModal, modalData, closeModal } = useModal();
+    const currentModal = useModalStore((state) => state.currentModal);
+    const modalData = useModalStore((state) => state.modalData);
+    const closeModal = useModalStore((state) => state.closeModal);
+
     const ModalContent = currentModal ? modalComponents[currentModal].content : null;
     const height = currentModal ? modalComponents[currentModal].height : null
     const width = currentModal ? modalComponents[currentModal].desktopWidth : null
@@ -22,7 +25,7 @@ export default function ModalDesktop() {
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         transition={{ duration: 0.17 }}
-                        className="fixed left-0 top-0 bottom-0 right-0 z-40 bg-black/25 flex justify-center items-center"
+                        className="fixed left-0 top-0 bottom-0 right-0 z-[10000] bg-black/25 flex justify-center items-center"
                         onClick={closeModal}
                     >
 
@@ -50,7 +53,7 @@ export default function ModalDesktop() {
                                             className={`bg-gray-900 w-full ${height} rounded-lg relative mx-auto`}
                                         >
 
-                                            {ModalContent && <ModalContent data={modalData} />}
+                                            {ModalContent && <ModalContent {...modalData} />}
                                         </motion.div>
                                     </div>
 

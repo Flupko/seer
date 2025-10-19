@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"log/slog"
 	"seer/internal/finance"
+	"seer/internal/numeric"
 	"seer/internal/ps"
 	"slices"
 	"time"
 
+	"github.com/ericlagergren/decimal"
 	"github.com/google/uuid"
 	"github.com/jackc/pgerrcode"
 	"github.com/jackc/pgx/v5"
@@ -19,8 +21,8 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-const minBetAmount = 1_00      // 1 USDT
-const maxBetAmount = 10_000_00 // 10k USDT
+var minBetAmount = decimal.New(1, 0)     // 1 USDT
+var maxBetAmount = decimal.New(10000, 0) // 10k USDT
 
 type TransactionManager struct {
 	rdb    *redis.Client
@@ -29,12 +31,12 @@ type TransactionManager struct {
 }
 
 type BetRequest struct {
-	UserID          uuid.UUID
+	LedgerAccountID uuid.UUID
 	MarketID        uuid.UUID
 	OutcomeID       int64
-	BetAmountCents  int64
-	QuotedGainCents int64
-	Currency        string
+	BetAmount       *numeric.BigDecimal
+	MinWantedGain   *numeric.BigDecimal
+	Currency        finance.Currency
 	IdempotencyKey  string
 }
 
@@ -50,12 +52,12 @@ func NewTransactionManager(rdb *redis.Client, db *pgxpool.Pool, logger *slog.Log
 
 func (tm *TransactionManager) AddBet(ctx context.Context, r BetRequest) (*Bet, error) {
 
-	if r.BetAmountCents < minBetAmount || r.BetAmountCents > maxBetAmount {
+	if r.BetAmount.Cmp(minBetAmount) < 0 || r.BetAmount.Cmp(maxBetAmount) > 0 {
 		return nil, ErrInvalidBetAmount
 	}
 
-	if r.QuotedGainCents <= r.BetAmountCents {
-		return nil, errors.New("quoted gain must be > bet amount")
+	if r.MinWantedGain.Cmp(&r.BetAmount.Big) <= 0 {
+		return nil, ErrInvalidQuotedGain
 	}
 
 	for attempt := range maxAttempts {
@@ -68,7 +70,7 @@ func (tm *TransactionManager) AddBet(ctx context.Context, r BetRequest) (*Bet, e
 					tm.logger.Error("failed to publish market update", "error", err)
 				}
 
-				if err := tm.PublishBalanceUpdate(bet.LedgerAccountID); err != nil {
+				if err := tm.PublishBalanceUpdate(r.LedgerAccountID); err != nil {
 					tm.logger.Error("failed to publish balance update", "error", err)
 				}
 
@@ -124,10 +126,12 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) (*Be
 	// -> We want to recompute the price
 
 	var m Market
-	var outcomesIDs, qVec []int64
+	var outcomesIDs []int64
+	var qVec []*numeric.BigDecimal
 
 	query := `
-	SELECT m.id, m.house_ledger_account_id, m.alpha_ppm, m.fee_ppm, m.version,
+	SELECT m.id, m.house_ledger_account_id, m.alpha, m.fee, m.cap_price,
+	m.version,
 	array_agg(o.quantity ORDER BY o.id) AS q_vec,
 	array_agg(o.id ORDER BY o.id) AS outcome_ids
 	FROM markets m
@@ -135,7 +139,7 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) (*Be
 	WHERE m.id = $1 AND m.status = 'opened' AND (m.close_time IS NULL OR m.close_time > now())
 	GROUP BY m.id`
 
-	if err = tx.QueryRow(ctx, query, r.MarketID).Scan(&m.ID, &m.HouseLedgerAccountID, &m.AlphaPPM, &m.FeePPM, &m.Version, &qVec, &outcomesIDs); err != nil {
+	if err = tx.QueryRow(ctx, query, r.MarketID).Scan(&m.ID, &m.HouseLedgerAccountID, &m.Alpha, &m.Fee, &m.CapPrice, &m.Version, &qVec, &outcomesIDs); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrMarketNotFound
 		}
@@ -152,67 +156,66 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) (*Be
 		return nil, ErrOutcomeNotFound
 	}
 
-	// Retrieve the user's account
-	userLedgerAccountID, err := finance.GetUserAccountForCurrency(ctx, tx, r.UserID, r.Currency, finance.AccountLiability)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get account: %w", err)
-	}
-
 	query = `
         SELECT balance
         FROM ledger_accounts
         WHERE id = $1
     `
 
-	var balance int64
-	err = tx.QueryRow(ctx, query, userLedgerAccountID).Scan(&balance)
+	var balance numeric.BigDecimal
+	err = tx.QueryRow(ctx, query, r.LedgerAccountID).Scan(&balance)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query user balance: %w", err)
 	}
 
-	if balance < r.BetAmountCents {
+	if balance.Cmp(&r.BetAmount.Big) < 0 {
 		return nil, finance.ErrInsufficientFunds
 	}
 
-	// Recompute gain in cents for the user
+	// Recompute gain for the user
 	// Validate it's equal to the provided BetRequest
-	actualGainCents, feeCents, pricePPM, err := PriceAndGainFromBudget(qVec, m.AlphaPPM, m.FeePPM, r.BetAmountCents, idx)
+	possible, actualGain, feePaid, avgPrice, err := PossibleGainFeePriceForBuy(qVec, idx, m.Alpha, m.Fee, r.BetAmount, m.CapPrice)
 	if err != nil {
 		return nil, fmt.Errorf("failed to recompute actual gain: %w", err)
 	}
 
-	if actualGainCents != r.QuotedGainCents {
+	if !possible {
+		return nil, ErrInvalidBetAmount
+	}
+
+	if actualGain.Cmp(&r.MinWantedGain.Big) < 0 {
 		return nil, ErrInvalidQuotedGain
 	}
 
 	// Everything is valid, we can start comiting
 
 	// Make transaction
-	_, err = finance.TransferMoney(ctx, tx, userLedgerAccountID, m.HouseLedgerAccountID, r.BetAmountCents, r.IdempotencyKey)
+	transferID, err := finance.TransferMoney(ctx, tx, r.LedgerAccountID, m.HouseLedgerAccountID, *r.BetAmount, r.IdempotencyKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to transfer: %w", err)
 	}
 
 	// Commit a bet, verify time with close_time > now()
 	bet := &Bet{
-		LedgerAccountID:     userLedgerAccountID,
-		OutcomeID:           r.OutcomeID,
-		PayoutCents:         actualGainCents,
-		TotalPricePaidCents: r.BetAmountCents,
-		FeePaidCents:        feeCents,
-		FeePPM:              m.FeePPM,
-		PricePPM:            pricePPM,
-		IdempotencyKey:      r.IdempotencyKey,
+		LedgerAccountID:  r.LedgerAccountID,
+		LedgerTransferID: transferID,
+		OutcomeID:        r.OutcomeID,
+		Payout:           actualGain,
+		TotalPricePaid:   r.BetAmount,
+		FeeApplied:       m.Fee,
+		FeePaid:          feePaid,
+		AvgPrice:         avgPrice,
+		IdempotencyKey:   r.IdempotencyKey,
 	}
 
 	query = `
-	INSERT INTO bets(ledger_account_id, outcome_id, payout_cents, total_price_paid_cents, fee_paid_cents, fee_ppm, price_ppm, idempotency_key)
-	VALUES($1, $2, $3, $4, $5, $6, $7, $8)
+	INSERT INTO bets(ledger_account_id, ledger_transfer_id, outcome_id, payout, total_price_paid, fee_applied, fee_paid, avg_price, idempotency_key)
+	VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)
 	ON CONFLICT (idempotency_key) DO NOTHING
 	RETURNING id, placed_at
 	`
 
-	err = tx.QueryRow(ctx, query, bet.LedgerAccountID, bet.OutcomeID, bet.PayoutCents, bet.TotalPricePaidCents, bet.FeePaidCents, bet.FeePPM, bet.PricePPM, bet.IdempotencyKey).Scan(&bet.ID, &bet.PlacedAt)
+	err = tx.QueryRow(ctx, query, bet.LedgerAccountID, bet.LedgerTransferID, bet.OutcomeID, bet.Payout, bet.TotalPricePaid, bet.FeeApplied, bet.FeePaid, bet.AvgPrice, bet.IdempotencyKey).Scan(&bet.ID, &bet.PlacedAt)
 
 	// Already have a bet with this idempotency key
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -224,12 +227,12 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) (*Be
 	}
 
 	// Add the shares to the outcome
-	if _, err := tx.Exec(ctx, `UPDATE outcomes SET quantity = quantity + $1, volume_cents = volume_cents + $2 WHERE id = $3`, actualGainCents, r.BetAmountCents, r.OutcomeID); err != nil {
-		return nil, fmt.Errorf("update outcome position: %w", err)
+	if _, err := tx.Exec(ctx, `UPDATE outcomes SET quantity = quantity + $1, volume = volume + $2 WHERE id = $3`, actualGain, r.BetAmount, r.OutcomeID); err != nil {
+		return nil, fmt.Errorf("failed to update outcome: %w", err)
 	}
 
 	// Update the market's version
-	cmd, err := tx.Exec(ctx, `UPDATE markets SET version = version + 1, volume_cents = volume_cents + $1 WHERE id=$2 AND (close_time IS NULL OR close_time > now())`, r.BetAmountCents, r.MarketID)
+	cmd, err := tx.Exec(ctx, `UPDATE markets SET version = version + 1, volume = volume + $1 WHERE id=$2 AND (close_time IS NULL OR close_time > now())`, r.BetAmount, r.MarketID)
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to update market version: %w", err)
@@ -240,6 +243,206 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) (*Be
 	}
 
 	return bet, tx.Commit(ctx)
+
+}
+
+type CashoutRequest = struct {
+	BetID          uuid.UUID
+	UserID         uuid.UUID
+	MinWantedGain  *numeric.BigDecimal
+	IdempotencyKey string
+}
+
+func (tm *TransactionManager) CashoutBet(ctx context.Context, r *CashoutRequest) (*BetCashout, error) {
+
+	// Retrieve the cashed out bet
+	query := `
+	SELECT m.id, b.id, b.ledger_account_id, b.ledger_transfer_id, b.outcome_id, b.payout, b.total_price_paid, b.fee_applied, b.fee_paid, b.avg_price, b.placed_at, b.idempotency_key
+	FROM bets b
+	JOIN outcomes o ON b.outcome_id = o.id
+	JOIN markets m ON o.market_id = m.id
+	JOIN ledger_accounts la ON b.ledger_account_id = la.id
+	JOIN users u ON la.user_id = u.id
+	WHERE b.id = $1 AND u.id = $2
+	`
+
+	cashedBet := &Bet{}
+	var marketID uuid.UUID
+
+	err := tm.db.QueryRow(ctx, query, r.BetID, r.UserID).Scan(
+		&marketID,
+		&cashedBet.ID, &cashedBet.LedgerAccountID, &cashedBet.LedgerTransferID, &cashedBet.OutcomeID, &cashedBet.Payout, &cashedBet.TotalPricePaid,
+		&cashedBet.FeeApplied, &cashedBet.FeePaid, &cashedBet.AvgPrice, &cashedBet.PlacedAt, &cashedBet.IdempotencyKey)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrBetNotFound
+		}
+		return nil, fmt.Errorf("failed to retrieve bet: %w", err)
+	}
+
+	for attempt := range maxAttempts {
+
+		betCashout, err := tm.cashoutBetOnce(ctx, marketID, cashedBet, r)
+		if err == nil {
+			// Push market update to redis
+			go func() {
+				if err := tm.PulishUpdateMarket(marketID); err != nil {
+					tm.logger.Error("failed to publish market update", "error", err)
+				}
+
+				if err := tm.PublishBalanceUpdate(cashedBet.LedgerAccountID); err != nil {
+					tm.logger.Error("failed to publish balance update", "error", err)
+				}
+
+				if err := tm.PublishBetUpdate(betCashout.ID); err != nil {
+					tm.logger.Error("failed to publish bet update", "error", err)
+				}
+
+			}()
+			return betCashout, nil
+		}
+
+		var pgErr *pgconn.PgError
+		isRetryable := errors.As(err, &pgErr) && (pgErr.Code == pgerrcode.SerializationFailure || pgErr.Code == pgerrcode.DeadlockDetected)
+
+		if !isRetryable {
+			return nil, err
+		}
+
+		if attempt < maxAttempts-1 {
+			select {
+			// Larger backoff at each retry
+			case <-time.After(time.Duration(50*(attempt+1)) * time.Millisecond):
+			// Context is done, exit early
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+			continue
+		}
+
+		return nil, err
+	}
+
+	return nil, errors.New("too many serialization retries")
+}
+
+func (tm *TransactionManager) cashoutBetOnce(ctx context.Context, marketID uuid.UUID, cashedBet *Bet, r *CashoutRequest) (*BetCashout, error) {
+
+	opts := pgx.TxOptions{
+		IsoLevel:   pgx.Serializable,
+		AccessMode: pgx.ReadWrite,
+	}
+
+	tx, err := tm.db.BeginTx(ctx, opts)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to begin tx: %w", err)
+	}
+
+	defer tx.Rollback(ctx)
+
+	var m Market
+	var outcomesIDs []int64
+	var qVec []*numeric.BigDecimal
+
+	query := `
+	SELECT m.id, m.house_ledger_account_id, m.alpha, m.fee, m.version,
+	array_agg(o.quantity ORDER BY o.id) AS q_vec,
+	array_agg(o.id ORDER BY o.id) AS outcome_ids
+	FROM markets m
+	JOIN outcomes o ON o.market_id = m.id
+	WHERE m.id = $1 AND m.status = 'opened' AND (m.close_time IS NULL OR m.close_time > now())
+	GROUP BY m.id`
+
+	if err = tx.QueryRow(ctx, query, marketID).Scan(&m.ID, &m.HouseLedgerAccountID, &m.Alpha, &m.Fee, &m.Version, &qVec, &outcomesIDs); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrMarketNotFound
+		}
+		return nil, fmt.Errorf("failed to query market's current state: %w", err)
+	}
+
+	if len(qVec) != len(outcomesIDs) || len(qVec) == 0 {
+		return nil, errors.New("inconsistent outcomes for market")
+	}
+
+	// Find the index of the outcome in the q vector
+	idx := slices.Index(outcomesIDs, cashedBet.OutcomeID)
+	if idx == -1 {
+		return nil, ErrOutcomeNotFound
+	}
+
+	// Recompute cashout gain for the user
+	// cashedBet.Payout = number of shares bought
+	possible, cashoutGain, err := PossibleGainForSell(qVec, idx, m.Alpha, cashedBet.Payout, m.CapPrice)
+	if err != nil {
+		return nil, fmt.Errorf("failed to recompute cashout gain: %w", err)
+	}
+
+	if !possible {
+		return nil, ErrInvalidBetAmount
+	}
+
+	fmt.Println("CASHOUT GAIN:", cashoutGain.String())
+
+	if cashoutGain.Cmp(&r.MinWantedGain.Big) < 0 || cashoutGain.Sign() <= 0 {
+		return nil, ErrInvalidQuotedGain
+	}
+
+	transferID, err := finance.TransferMoney(ctx, tx, m.HouseLedgerAccountID, cashedBet.LedgerAccountID, *cashoutGain, r.IdempotencyKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to transfer: %w", err)
+	}
+
+	// Commit a bet cashout
+	betCashout := &BetCashout{
+		BetID:            cashedBet.ID,
+		LedgerTransferID: transferID,
+		Payout:           cashoutGain,
+		IdempotencyKey:   r.IdempotencyKey,
+	}
+
+	query = `
+	INSERT INTO bet_cashouts(bet_id, ledger_transfer_id, payout, idempotency_key)
+	VALUES($1, $2, $3, $4)
+	ON CONFLICT (idempotency_key) DO NOTHING
+	RETURNING id
+	`
+
+	err = tx.QueryRow(ctx, query, betCashout.BetID, betCashout.LedgerTransferID, betCashout.Payout, betCashout.IdempotencyKey).Scan(&betCashout.ID)
+
+	// Already have a cashout with this idempotency key
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrBetAlreadyCashedOut
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to insert bet cashout: %w", err)
+	}
+
+	// Hedge the outcomes
+	// cashedBet.Payout = number of shares bought = hedged number of shares
+	query = `UPDATE outcomes 
+	SET quantity = quantity + $1
+	WHERE market_id = $2 AND id <> $3`
+
+	_, err = tx.Exec(ctx, query, cashedBet.Payout, m.ID, cashedBet.OutcomeID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update outcomes: %w", err)
+	}
+
+	// Update the market's version
+	cmd, err := tx.Exec(ctx, `UPDATE markets SET version = version + 1 WHERE id=$1 AND (close_time IS NULL OR close_time > now())`, m.ID)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to update market version: %w", err)
+	}
+
+	if cmd.RowsAffected() == 0 {
+		return nil, ErrMarketNotFound
+	}
+
+	return betCashout, tx.Commit(ctx)
 
 }
 
@@ -301,7 +504,7 @@ func (tm *TransactionManager) SettleMarket(ctx context.Context, marketID uuid.UU
 
 	// Compute the amount to pay to each account
 	query = `
-	SELECT b.ledger_account_id, SUM(b.payout_cents)	
+	SELECT b.ledger_account_id, SUM(b.payout)	
 	FROM bets b
 	JOIN outcomes o ON b.outcome_id = o.id -- NOT ESSENTIEL, just to mitigate the ability to choose an outcome not tied to the given marketID
 	WHERE o.market_id = $1 AND b.outcome_id = $2
@@ -318,7 +521,7 @@ func (tm *TransactionManager) SettleMarket(ctx context.Context, marketID uuid.UU
 
 	type payoutInfo struct {
 		ledgerAccountID uuid.UUID
-		payoutCents     int64
+		payout          numeric.BigDecimal
 	}
 
 	var payouts []payoutInfo
@@ -326,7 +529,7 @@ func (tm *TransactionManager) SettleMarket(ctx context.Context, marketID uuid.UU
 	for rows.Next() {
 		var payout payoutInfo
 
-		err = rows.Scan(&payout.ledgerAccountID, &payout.payoutCents)
+		err = rows.Scan(&payout.ledgerAccountID, &payout.payout)
 		if err != nil {
 			return fmt.Errorf("failed to scan: %w", err)
 		}
@@ -337,7 +540,7 @@ func (tm *TransactionManager) SettleMarket(ctx context.Context, marketID uuid.UU
 
 	for _, p := range payouts {
 		idemKey := fmt.Sprintf("settle:%s:%s", marketID, p.ledgerAccountID)
-		_, err = finance.TransferMoney(ctx, tx, houseAccountID, p.ledgerAccountID, p.payoutCents, idemKey)
+		_, err = finance.TransferMoney(ctx, tx, houseAccountID, p.ledgerAccountID, p.payout, idemKey)
 		if err != nil {
 			return fmt.Errorf("failed to credit account %s: %w", p.ledgerAccountID, err)
 		}
@@ -407,7 +610,7 @@ func (tm *TransactionManager) CancelMarket(ctx context.Context, marketID uuid.UU
 
 	// Compute the amount to refund to each account
 	query = `
-	SELECT b.ledger_account_id, SUM(b.total_price_paid_cents) as refund_cents	
+	SELECT b.ledger_account_id, SUM(b.total_price_paid) as refund	
 	FROM bets b
 	JOIN outcomes o ON b.outcome_id = o.id -- NOT ESSENTIAL, just to mitigate the ability to choose an outcome not tied to the given marketID
 	WHERE o.market_id = $1
@@ -424,15 +627,15 @@ func (tm *TransactionManager) CancelMarket(ctx context.Context, marketID uuid.UU
 
 	for rows.Next() {
 		var ledgerAccountID uuid.UUID
-		var refundCents int64
+		var refund numeric.BigDecimal
 
-		err = rows.Scan(&ledgerAccountID, &refundCents)
+		err = rows.Scan(&ledgerAccountID, &refund)
 		if err != nil {
 			return fmt.Errorf("failed to scan")
 		}
 
 		idemKey := fmt.Sprintf("settle:%s:%s", marketID, ledgerAccountID)
-		_, err = finance.TransferMoney(ctx, tx, houseAccountID, ledgerAccountID, refundCents, idemKey)
+		_, err = finance.TransferMoney(ctx, tx, houseAccountID, ledgerAccountID, refund, idemKey)
 		if err != nil {
 			return fmt.Errorf("failed to refund account %s: %w", ledgerAccountID, err)
 		}

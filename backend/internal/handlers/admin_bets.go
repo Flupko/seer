@@ -3,7 +3,9 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"seer/internal/finance"
 	"seer/internal/market"
+	"seer/internal/numeric"
 	"seer/internal/utils"
 	"time"
 
@@ -29,8 +31,8 @@ type adminBetSearchReq struct {
 	UserID   *uuid.UUID        `json:"userID"`
 	Status   *market.BetStatus `json:"betStatus" validate:"omitempty,oneof=active won lost resolved"`
 
-	MinPriceCents *int64 `json:"minPriceCents" validate:"omitempty,min=100"`          // Min 1 USDT
-	MaxPriceCents *int64 `json:"maxPriceCents" validate:"omitempty,max=100000000000"` // Max 1B USDT
+	MinPrice *numeric.BigDecimal `json:"minPrice" validate:"omitempty,min=1"`          // Min 1 USDT
+	MaxPrice *numeric.BigDecimal `json:"maxPrice" validate:"omitempty,max=1000000000"` // Max 1B USDT
 
 	FromTime *time.Time `json:"fromTime"`
 	ToTime   *time.Time `json:"toTime" validate:"omitempty,gtfield=FromTime"`
@@ -43,21 +45,22 @@ type adminBetSearchReq struct {
 }
 
 type adminBetSearchRes struct {
-	ID              uuid.UUID        `json:"id"`
-	UserID          uuid.UUID        `json:"userId"`
-	LedgerAccountID uuid.UUID        `json:"ledgerAccountId"`
-	Status          market.BetStatus `json:"betStatus"`
-	PricePaidCents  int64            `json:"pricePaidCents"`
-	PayoutCents     int64            `json:"payoutCents"`
-	FeePaidCents    int64            `json:"feePaidCents"`
-	FeePPM          int64            `json:"feePPM"`
-	PricePPM        int64            `json:"pricePPM"`
-	MarketID        uuid.UUID        `json:"marketId"`
-	MarketName      string           `json:"marketName"`
-	OutcomeID       int64            `json:"outcomesId"`
-	OutcomeName     string           `json:"outcomeName"`
-	PlacedAt        time.Time        `json:"placeAt"`
-	IdempotencyKey  string           `json:"idempotencyKey"`
+	ID              uuid.UUID           `json:"id"`
+	UserID          uuid.UUID           `json:"userId"`
+	LedgerAccountID uuid.UUID           `json:"ledgerAccountId"`
+	Currency        finance.Currency    `json:"currency"`
+	Status          market.BetStatus    `json:"betStatus"`
+	PricePaid       *numeric.BigDecimal `json:"pricePaid"`
+	Payout          *numeric.BigDecimal `json:"payout"`
+	FeeApplied      *numeric.BigDecimal `json:"feeApplied"`
+	FeePaid         *numeric.BigDecimal `json:"feePaid"`
+	AvgPrice        *numeric.BigDecimal `json:"avgPrice"`
+	MarketID        uuid.UUID           `json:"marketId"`
+	MarketName      string              `json:"marketName"`
+	OutcomeID       int64               `json:"outcomesId"`
+	OutcomeName     string              `json:"outcomeName"`
+	PlacedAt        time.Time           `json:"placeAt"`
+	IdempotencyKey  string              `json:"idempotencyKey"`
 }
 
 func (h *AdminBetHandler) GetBetsAdmin(c echo.Context) error {
@@ -79,8 +82,8 @@ func (h *AdminBetHandler) GetBetsAdmin(c echo.Context) error {
 		MarketID: r.MarketID,
 		Status:   r.Status,
 
-		MinPriceCents: r.MinPriceCents,
-		MaxPriceCents: r.MaxPriceCents,
+		MinPrice: r.MinPrice,
+		MaxPrice: r.MaxPrice,
 
 		Page:     r.Page,
 		PageSize: r.PageSize,
@@ -100,13 +103,14 @@ func (h *AdminBetHandler) GetBetsAdmin(c echo.Context) error {
 		br := &adminBetSearchRes{
 			ID:              b.ID,
 			Status:          b.Status,
-			LedgerAccountID: b.LedgerAccountID,
+			Currency:        b.Currency,
 			UserID:          b.User.ID,
-			FeePaidCents:    b.FeePaidCents,
-			FeePPM:          b.FeePPM,
-			PricePaidCents:  b.TotalPricePaidCents,
-			PricePPM:        b.PricePPM,
-			PayoutCents:     b.PayoutCents,
+			LedgerAccountID: b.LedgerAccountID,
+			FeeApplied:      b.FeeApplied,
+			FeePaid:         b.FeePaid,
+			PricePaid:       b.TotalPricePaid,
+			AvgPrice:        b.AvgPrice,
+			Payout:          b.Payout,
 			MarketID:        b.MarketID,
 			MarketName:      b.MarketName,
 			OutcomeID:       b.OutcomeID,

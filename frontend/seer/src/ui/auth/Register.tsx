@@ -1,20 +1,18 @@
 "use client"
 
 import Button from "@/ui/Button";
-import Input from "@/ui/Input";
+import { SubmitHandler, useForm } from "react-hook-form";
+import Password from "../form/Password";
 import Providers from "./Providers";
-import Password from "./Password";
-import Link from "next/link";
-import { useForm, SubmitHandler } from "react-hook-form"
 
-import { RegisterSchema, RegisterFormValues } from "@/lib/definitions";
+import { RegisterFormValues, RegisterSchema } from "@/lib/definitions";
 import { zodResolver } from "@hookform/resolvers/zod";
-import FormField from "./FormField";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import FormField from "../form/FormField";
 
 import * as api from "@/lib/api";
-import { redirect, useRouter } from "next/navigation";
-import { useModal } from "../modal/Modal";
+import { useModalStore } from "@/lib/stores/modal";
+import { useRouter } from "next/navigation";
 import Terms from "./Terms";
 
 
@@ -33,7 +31,7 @@ export default function Register() {
     });
 
     const queryClient = useQueryClient();
-    const {closeModal} = useModal();
+    const closeModal = useModalStore((state) => state.closeModal);
 
 
     const mutation = useMutation({

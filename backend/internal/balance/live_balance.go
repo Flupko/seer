@@ -17,20 +17,9 @@ import (
 )
 
 const (
-	WsBalanceRoom = "balance"
-)
-
-const (
 	marketBalancePushTimeout = 20 * time.Second
 	userBalancePushTimeout   = 5 * time.Second
 )
-
-type WsPayloadBalanceUpdate struct {
-	UserID   uuid.UUID `json:"-"`
-	Currency string    `json:"currency"`
-	Balance  int64     `json:"balance"`
-	Version  int64     `json:"version"`
-}
 
 type BalancePusher struct {
 	ctx    context.Context
@@ -146,10 +135,10 @@ func (bp *BalancePusher) pushBalancesForResolvedMarket(payload string) error {
 
 	defer rows.Close()
 
-	balanceUpdates := make([]*WsPayloadBalanceUpdate, 0)
+	balanceUpdates := make([]*ws.BalanceUpdate, 0)
 
 	for rows.Next() {
-		bu := &WsPayloadBalanceUpdate{}
+		bu := &ws.BalanceUpdate{}
 		err = rows.Scan(&bu.UserID, &bu.Balance, &bu.Currency, &bu.Version)
 		if err != nil {
 			return fmt.Errorf("failed to scan balance update: %w", err)
@@ -195,7 +184,7 @@ func (bp *BalancePusher) pushBalanceUpdate(payload string) error {
 	FROM ledger_accounts la
 	WHERE la.id = $1`
 
-	bu := &WsPayloadBalanceUpdate{}
+	bu := &ws.BalanceUpdate{}
 
 	err = bp.db.QueryRow(pushCtx, query, u.LedgerAccountID).Scan(&bu.UserID, &bu.Balance, &bu.Currency, &bu.Version)
 	if err != nil {
@@ -211,7 +200,7 @@ func (bp *BalancePusher) pushBalanceUpdate(payload string) error {
 
 }
 
-func (bp *BalancePusher) pushBalanceToUserWs(ctx context.Context, bu *WsPayloadBalanceUpdate) error {
+func (bp *BalancePusher) pushBalanceToUserWs(ctx context.Context, bu *ws.BalanceUpdate) error {
 
 	data, err := json.Marshal(bu)
 	if err != nil {
@@ -219,7 +208,7 @@ func (bp *BalancePusher) pushBalanceToUserWs(ctx context.Context, bu *WsPayloadB
 	}
 
 	wsMsg := ws.Message{
-		Type:    WsBalanceRoom,
+		Type:    ws.BalanceRoom,
 		Payload: data,
 	}
 

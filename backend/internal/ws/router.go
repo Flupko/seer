@@ -3,13 +3,14 @@ package ws
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 
 	"github.com/go-playground/validator/v10"
 )
 
 type Message struct {
 	Type    string          `json:"type" validate:"required,max=30"`
-	Payload json.RawMessage `json:"payload" validate:"required"`
+	Payload json.RawMessage `json:"payload"`
 }
 
 type WsHandlerFunc func(c *Client, payload string)
@@ -35,30 +36,31 @@ func (r *SocketRouter) routeMessage(c *Client, rawMessage []byte) {
 	dec := json.NewDecoder(bytes.NewReader(rawMessage))
 	dec.DisallowUnknownFields()
 
-	var m Message
-	if err := dec.Decode(&m); err != nil {
-		c.Disconnect()
-		return
+	for dec.More() {
+		var m Message
+		if err := dec.Decode(&m); err != nil {
+			c.Disconnect()
+			fmt.Println("failed to decode ws message:", err)
+			return
+		}
+
+		err := r.validate.Struct(m)
+		if err != nil {
+			c.Disconnect()
+			fmt.Println("ws message validation error:", err)
+			return
+		}
+
+		handler, ok := r.routes[m.Type]
+		if !ok {
+			c.Disconnect()
+			fmt.Println("no handler for ws message type:", m.Type)
+			return
+		}
+
+		fmt.Println("Routing ws message of type:", m.Type)
+		handler(c, string(m.Payload))
+
 	}
-
-	if dec.More() {
-		c.Disconnect()
-		return
-	}
-
-	err := r.validate.Struct(m)
-	if err != nil {
-		c.Disconnect()
-		return
-	}
-
-	handler, ok := r.routes[m.Type]
-
-	if !ok {
-		c.Disconnect()
-		return
-	}
-
-	handler(c, string(m.Payload))
 
 }

@@ -112,17 +112,17 @@ func (r *SessionRepo) CreateSession(ctx context.Context, s *Session) error {
 	return err
 }
 
-func (r *SessionRepo) GetUserFromPlain(ctx context.Context, plain string, ip string) (*MinimalUser, error) {
+func (r *SessionRepo) GetUserFromPlain(ctx context.Context, plain string, ip *string) (*MinimalUser, error) {
 
 	sum := sha256.Sum256([]byte(plain))
 	hash := sum[:]
 
 	query := `
         UPDATE sessions AS s
-        SET last_used_at = NOW(), ip_last = $2
+        SET last_used_at = NOW(), ip_last = COALESCE($2, s.ip_last)
         FROM users AS u
         WHERE s.hash = $1 AND s.expires_at > NOW() AND s.revoked_at IS NULL AND u.id = s.user_id
-        RETURNING s.id, u.id, u.username, u.role, u.status, 
+        RETURNING s.id, u.id, u.username, u.profile_image_key, u.role, u.status, 
 		(SELECT effective_until FROM mutes 
 		WHERE user_id = u.id AND effective_until > now() 
 		ORDER BY effective_until DESC LIMIT 1) as muted_until;
@@ -134,6 +134,7 @@ func (r *SessionRepo) GetUserFromPlain(ctx context.Context, plain string, ip str
 		&user.SessionID,
 		&user.ID,
 		&user.Username,
+		&user.ProfileImageKey,
 		&user.Role,
 		&user.Status,
 		&user.MutedUntil,
@@ -151,14 +152,14 @@ func (r *SessionRepo) GetUserFromPlain(ctx context.Context, plain string, ip str
 	return user, nil
 }
 
-func (r *SessionRepo) RevokeSession(ctx context.Context, sessionID uuid.UUID) error {
+func (r *SessionRepo) RevokeSession(ctx context.Context, sessionID uuid.UUID, userID uuid.UUID) error {
 	query := `
 		UPDATE sessions
 		SET revoked_at = $1
-		WHERE id = $2 AND revoked_at IS NULL
+		WHERE id = $2 AND user_id = $3 AND revoked_at IS NULL
 	`
 
-	cmd, err := r.db.Exec(ctx, query, time.Now().UTC(), sessionID)
+	cmd, err := r.db.Exec(ctx, query, time.Now().UTC(), sessionID, userID)
 	if err != nil {
 		return fmt.Errorf("failed to revoke session: %w", err)
 	}
@@ -170,19 +171,20 @@ func (r *SessionRepo) RevokeSession(ctx context.Context, sessionID uuid.UUID) er
 	return nil
 }
 
-func (r *SessionRepo) GetAllActiveForUser(ctx context.Context, userID uuid.UUID) ([]*Session, error) {
+func (r *SessionRepo) GetForUser(ctx context.Context, userID uuid.UUID, showInactive bool) ([]*Session, error) {
 	query := `
 		SELECT id, user_id, hash, 
-		created_at, last_seen_at, expires_at, revoked_at, 
+		created_at, last_used_at, expires_at, revoked_at, 
 		ip_first, ip_last, 
 		user_agent, client_os, client_browser, client_device, 
 		geo_country, geo_city
 		FROM sessions
-		WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > NOW()
-		ORDER BY last_seen_at DESC
+		WHERE user_id = $1 
+		AND ($2 OR (revoked_at IS NULL AND expires_at > NOW()))
+		ORDER BY last_used_at DESC
 	`
 
-	rows, err := r.db.Query(ctx, query, userID)
+	rows, err := r.db.Query(ctx, query, userID, showInactive)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get active sessions: %w", err)
 	}

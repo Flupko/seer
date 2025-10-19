@@ -45,89 +45,16 @@ const (
 	ErrCodeChatRoomNotFound = "chat_room_not_found"
 )
 
-type JoinMarketPayload struct {
+type JoinLeaveMarketPayload struct {
 	MarketIDs []uuid.UUID `json:"marketIds" validate:"required,max=49,min=1"`
 }
 
 func (h *WsHandler) HandleJoinMarketRooms(c *ws.Client, reqPayload string) {
+	fmt.Println("HandleJoinMarketRooms called")
+}
 
-	ctx, cancel := context.WithTimeout(c.Ctx, 15*time.Second)
-	defer cancel()
-
-	p := &JoinMarketPayload{}
-	if err := utils.ReadJson(strings.NewReader(reqPayload), p); err != nil {
-		switch {
-		case errors.Is(err, utils.ErrInvalidJSON):
-			h.sendError(c, ErrCodeInvalidPayload)
-		default:
-			h.sendError(c, ErrCodeInternalError)
-		}
-		c.Disconnect()
-		return
-	}
-
-	if err := h.validate.Struct(p); err != nil {
-		h.sendError(c, ErrCodeInvalidPayload)
-		c.Disconnect()
-		return
-	}
-
-	validMarkets, err := h.msm.GetValidMarkets(ctx, p.MarketIDs)
-	if err != nil {
-		h.sendError(c, ErrCodeInternalError)
-		return
-	}
-
-	if len(validMarkets) != len(p.MarketIDs) {
-		h.sendError(c, ErrCodeInvalidMarkets)
-		return
-	}
-
-	for _, marketID := range validMarkets {
-		c.Join(fmt.Sprintf("%s%s", market.WsMarketRoomPrefix, marketID))
-	}
-
-	for _, marketID := range validMarkets {
-
-		ms, err := h.msm.GetMarketState(ctx, marketID)
-		if err != nil {
-			h.sendError(c, ErrCodeInternalError)
-			return
-		}
-
-		wsPayload := market.WSPayloadMarketUpdate{
-			ID:      ms.ID,
-			Version: ms.Version,
-		}
-
-		for i := range len(ms.QVec) {
-			wsPayload.Outcomes = append(wsPayload.Outcomes,
-				market.WSPayloadOutcomeUpdate{
-					ID:      ms.OutcomeIDs[i],
-					ProbPPM: ms.PricesPPM[i],
-				})
-		}
-
-		buf, err := json.Marshal(wsPayload)
-		if err != nil {
-			h.sendError(c, ErrCodeInternalError)
-			return
-		}
-
-		wsMsg := ws.Message{
-			Type:    "market_update",
-			Payload: buf,
-		}
-
-		wsBuf, err := json.Marshal(wsMsg)
-		if err != nil {
-			h.sendError(c, ErrCodeInternalError)
-			return
-		}
-
-		c.Send(wsBuf)
-
-	}
+func (h *WsHandler) HandleLeaveMarketRooms(c *ws.Client, reqPayload string) {
+	c.Leave(ws.MarketsUpdateRoom)
 }
 
 func (h *WsHandler) HandleJoinBetsRoom(c *ws.Client, reqPayload string) {
@@ -149,27 +76,68 @@ func (h *WsHandler) HandleJoinBetsRoom(c *ws.Client, reqPayload string) {
 		return
 	}
 
-	highBetsAny := make([]any, len(highBetsState))
-	latestBetsAny := make([]any, len(latestBetsState))
+	highBetsAny := make([]any, 0, len(highBetsState))
+	latestBetsAny := make([]any, 0, len(latestBetsState))
 
-	for i, bs := range highBetsState {
+	for _, bs := range highBetsState {
 
-		wsBuf, err := utils.WsMessage(market.WsBetsHighRoom, bs)
+		wsPayload := ws.BetUpdate{
+			ID:          bs.ID,
+			MarketID:    bs.MarketID,
+			MarketName:  bs.MarketName,
+			OutcomeID:   bs.OutcomeID,
+			OutcomeName: bs.OutcomeName,
+			Wager:       bs.Wager,
+			Payout:      bs.Payout,
+			AvgPrice:    bs.AvgPrice,
+			PlacedAt:    bs.PlacedAt,
+		}
+
+		if bs.User != nil {
+			wsPayload.User = &ws.UserState{
+				ID:              bs.User.ID,
+				Username:        bs.User.Username,
+				ProfileImageKey: bs.User.ProfileImageKey,
+			}
+		}
+
+		wsBuf, err := utils.WsMessage(ws.BetsHighRoom, wsPayload)
 		if err != nil {
 			h.sendError(c, ErrCodeInternalError)
 			return
 		}
 
-		highBetsAny[i] = wsBuf
+		highBetsAny = append(highBetsAny, wsBuf)
 	}
 
-	for i, bs := range latestBetsState {
-		wsBuf, err := utils.WsMessage(market.WsBetsLatestRoom, bs)
+	for _, bs := range latestBetsState {
+
+		wsPayload := ws.BetUpdate{
+			ID:          bs.ID,
+			MarketID:    bs.MarketID,
+			MarketName:  bs.MarketName,
+			OutcomeID:   bs.OutcomeID,
+			OutcomeName: bs.OutcomeName,
+			Wager:       bs.Wager,
+			Payout:      bs.Payout,
+			AvgPrice:    bs.AvgPrice,
+			PlacedAt:    bs.PlacedAt,
+		}
+
+		if bs.User != nil {
+			wsPayload.User = &ws.UserState{
+				ID:              bs.User.ID,
+				Username:        bs.User.Username,
+				ProfileImageKey: bs.User.ProfileImageKey,
+			}
+		}
+
+		wsBuf, err := utils.WsMessage(ws.BetsLatestRoom, wsPayload)
 		if err != nil {
 			h.sendError(c, ErrCodeInternalError)
 			return
 		}
-		latestBetsAny[i] = wsBuf
+		latestBetsAny = append(latestBetsAny, wsBuf)
 	}
 
 	var err1, err2 error
@@ -184,12 +152,17 @@ func (h *WsHandler) HandleJoinBetsRoom(c *ws.Client, reqPayload string) {
 		h.sendError(c, ErrCodeInternalError)
 	}
 
-	c.Join(market.WsBetsLatestRoom)
-	c.Join(market.WsBetsHighRoom)
+	c.Join(ws.BetsLatestRoom)
+	c.Join(ws.BetsHighRoom)
 
 }
 
-type JoinChatRoomPaylod struct {
+func (h *WsHandler) HandleLeaveBetsRoom(c *ws.Client, reqPayload string) {
+	c.Leave(ws.BetsLatestRoom)
+	c.Leave(ws.BetsHighRoom)
+}
+
+type JoinLeaveChatRoomPaylod struct {
 	ChatSlug string `json:"chatSlug" validate:"required,lowercase,alphanum,min=3,max=20"`
 }
 
@@ -198,7 +171,7 @@ func (h *WsHandler) HandleJoinChatRoom(c *ws.Client, reqPayload string) {
 	ctx, cancel := context.WithTimeout(c.Ctx, 5*time.Second)
 	defer cancel()
 
-	p := &JoinChatRoomPaylod{}
+	p := &JoinLeaveChatRoomPaylod{}
 	if err := utils.ReadJson(strings.NewReader(reqPayload), p); err != nil {
 		switch {
 		case errors.Is(err, utils.ErrInvalidJSON):
@@ -228,12 +201,25 @@ func (h *WsHandler) HandleJoinChatRoom(c *ws.Client, reqPayload string) {
 		return
 	}
 
-	msgsAny := make([]any, len(msgs))
+	msgsAny := make([]any, 0, len(msgs))
 	wsChatRoom := chat.BuildWSChatRoom(p.ChatSlug)
 
 	for i, m := range msgs {
 
-		wsBuf, err := utils.WsMessage(wsChatRoom, m)
+		wsPayload := ws.ChatMessage{
+			ID:        m.ID,
+			ChatSlug:  m.ChatSlug,
+			Content:   m.Content,
+			CreatedAt: m.CreatedAt,
+			Type:      m.Type,
+		}
+		wsPayload.User = ws.UserState{
+			ID:              m.User.ID,
+			Username:        m.User.Username,
+			ProfileImageKey: m.User.ProfileImageKey,
+		}
+
+		wsBuf, err := utils.WsMessage(wsChatRoom, wsPayload)
 		if err != nil {
 			h.sendError(c, ErrCodeInternalError)
 			return
@@ -250,6 +236,30 @@ func (h *WsHandler) HandleJoinChatRoom(c *ws.Client, reqPayload string) {
 	}
 
 	c.Join(wsChatRoom)
+}
+
+func (h *WsHandler) HandleLeaveChatRoom(c *ws.Client, reqPayload string) {
+
+	p := &JoinLeaveChatRoomPaylod{}
+	if err := utils.ReadJson(strings.NewReader(reqPayload), p); err != nil {
+		switch {
+		case errors.Is(err, utils.ErrInvalidJSON):
+			h.sendError(c, ErrCodeInvalidPayload)
+		default:
+			h.sendError(c, ErrCodeInternalError)
+		}
+		c.Disconnect()
+		return
+	}
+
+	if err := h.validate.Struct(p); err != nil {
+		h.sendError(c, ErrCodeInvalidPayload)
+		c.Disconnect()
+		return
+	}
+
+	wsChatRoom := chat.BuildWSChatRoom(p.ChatSlug)
+	c.Leave(wsChatRoom)
 }
 
 type SendMessagePayload struct {
@@ -342,7 +352,7 @@ func (h *WsHandler) RequireAuthentication(next ws.WsHandlerFunc) ws.WsHandlerFun
 }
 
 func (h *WsHandler) HandleJoinOnlineRoom(c *ws.Client, reqPayload string) {
-	c.Join(ws.WsOnlineRoom)
+	c.Join(ws.OnlineRoom)
 
 	wsBuf, err := h.op.GetOnlineWsMsg()
 	if err != nil {
@@ -353,12 +363,12 @@ func (h *WsHandler) HandleJoinOnlineRoom(c *ws.Client, reqPayload string) {
 	c.Send(wsBuf)
 }
 
-type WSError struct {
-	Error string `json:"error"`
+func (h *WsHandler) HandleLeaveOnlineRoom(c *ws.Client, reqPayload string) {
+	c.Leave(ws.OnlineRoom)
 }
 
 func (h *WsHandler) sendError(c *ws.Client, message string) {
-	wsPayload := WSError{Error: message}
+	wsPayload := ws.WSError{Error: message}
 
 	buf, err := json.Marshal(wsPayload)
 	if err != nil {

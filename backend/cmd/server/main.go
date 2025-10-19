@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
-	"reflect"
 	"runtime"
 	"seer/config"
 	"seer/internal/balance"
@@ -70,22 +69,6 @@ func main() {
 	})
 
 	validate := utils.SetupValidator()
-	validate.RegisterTagNameFunc(func(fld reflect.StructField) string {
-
-		if name := fld.Tag.Get("json"); name != "" {
-			return name
-		}
-
-		if name := fld.Tag.Get("query"); name != "" {
-			return name
-		}
-
-		if name := fld.Tag.Get("form"); name != "-" {
-			return name
-		}
-
-		return ""
-	})
 
 	e := echo.New()
 
@@ -152,11 +135,20 @@ func main() {
 	wsHandlers := handlers.NewWsHandler(betLiveManager, marketStateManager, chatManager, onlinePusher, validate)
 	hub := ws.NewHub(context.TODO(), logger, rdb)
 	wsRouter := ws.NewSocketRouter(validate)
-	wsRouter.AddRouteHandler("market:subscribe", wsHandlers.HandleJoinMarketRooms)
-	wsRouter.AddRouteHandler("bets:subscribe", wsHandlers.HandleJoinBetsRoom)
-	wsRouter.AddRouteHandler("chat:subscribe", wsHandlers.HandleJoinChatRoom)
-	wsRouter.AddRouteHandler("chat:send", wsHandlers.RequireAuthentication(wsHandlers.HandleSendMessage))
-	wsRouter.AddRouteHandler("online_count:subscribe", wsHandlers.HandleJoinOnlineRoom)
+
+	wsRouter.AddRouteHandler("subscribe:markets", wsHandlers.HandleJoinMarketRooms)
+	wsRouter.AddRouteHandler("leave:markets", wsHandlers.HandleLeaveMarketRooms)
+
+	wsRouter.AddRouteHandler("subscribe:bets", wsHandlers.HandleJoinBetsRoom)
+	wsRouter.AddRouteHandler("leave:bets", wsHandlers.HandleLeaveBetsRoom)
+
+	wsRouter.AddRouteHandler("subscribe:chat", wsHandlers.HandleJoinChatRoom)
+	wsRouter.AddRouteHandler("leave:chat", wsHandlers.HandleLeaveChatRoom)
+
+	wsRouter.AddRouteHandler("subscribe:online_count", wsHandlers.HandleJoinOnlineRoom)
+	wsRouter.AddRouteHandler("leave:online_count", wsHandlers.HandleLeaveOnlineRoom)
+
+	wsRouter.AddRouteHandler("send:chat", wsHandlers.RequireAuthentication(wsHandlers.HandleSendMessage))
 
 	upgrader := &websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -190,7 +182,7 @@ func main() {
 	adminModerateHandler := handlers.NewAdminModerateHandler(validate, repos.NewModerateRepo(db))
 	userModateHandler := handlers.NewUserModerateHandler(validate, repos.NewModerateRepo(db))
 	notifHandler := handlers.NewNotificationHandler(validate, notificationManager)
-	userHandler := handlers.NewUserHandler(userRepo)
+	userHandler := handlers.NewUserHandler(validate, userRepo)
 
 	e.RouteNotFound("/*", func(c echo.Context) error {
 		return c.NoContent(http.StatusNotFound)
@@ -199,23 +191,33 @@ func main() {
 	// Register routes
 	e.GET("/ws", authMiddleware.Authenticate(wstHttpHandler.ServeWS))
 
-	e.GET("/auth/:provider", authHandler.ProviderLogin)
-	e.GET("/auth/:provider/callback", authHandler.GetAuthCallback)
+	e.GET("/auth/provider/:provider", authHandler.ProviderLogin)
+	e.GET("/auth/provider/:provider/callback", authHandler.GetAuthCallback)
 	e.POST("/auth/register", authHandler.RegisterUserByEmail)
 	e.POST("/auth/login", authHandler.LoginUserByEmailOrUsername)
 	e.POST("/auth/complete-profile", authHandler.CompleteProfile)
 	e.POST("/auth/logout", authMiddleware.RequireAuthentication(authHandler.Logout))
+	e.GET("/auth/sessions", authMiddleware.RequireAuthentication(authHandler.GetSessions))
+	e.PATCH("/auth/sessions/:id/revoke", authMiddleware.RequireAuthentication(authHandler.RevokeSession))
+	e.PATCH("/auth/password/change", authMiddleware.RequireAuthentication(authHandler.ChangePassword))
+	e.POST("/auth/password/set", authMiddleware.RequireAuthentication(authHandler.SetPassword))
 
 	// Protected routes
 	// User related
 
 	e.GET("/user/me", authMiddleware.Authenticate(userHandler.UserMe))
+	e.GET("/user/prefs", authMiddleware.RequireAuthentication(userHandler.GetPreferences))
+	e.PATCH("/user/prefs", authMiddleware.RequireAuthentication(userHandler.UpdatePreferences))
 
-	e.GET("/market/quote", marketHandler.GetQuote)
+	e.GET("/market/quote", marketHandler.GetQuoteBet)
 	e.POST("/market/bet", authMiddleware.RequireAuthentication(transactionHandler.PlaceBet))
+	e.POST("/market/cashout", authMiddleware.RequireAuthentication(transactionHandler.CashoutBet))
 	e.GET("/my/bets", authMiddleware.RequireAuthentication(marketHandler.GetPersonnalBets))
 	e.GET("/market/search", marketHandler.GetMarketsUser)
+	e.GET("/market/search/:id", marketHandler.GetMarketUser)
 	e.GET("/bet/:id", marketHandler.PublicGetBet)
+
+	e.GET("market/categories/featured", marketHandler.GetAllFeaturedCategories)
 
 	e.GET("/notifications", authMiddleware.RequireAuthentication(notifHandler.GetUnreadNotifications))
 	e.POST("/notifications/read", authMiddleware.RequireAuthentication(notifHandler.ReadNotifications))

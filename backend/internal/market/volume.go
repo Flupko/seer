@@ -55,7 +55,7 @@ func (vc *VolumeCalculator) updateVolume24h(ctx context.Context) error {
 
 	query := `UPDATE markets m
 	SET volume_24h = (
-		SELECT COALESCE(SUM(b.total_price_paid_cents), 0)
+		SELECT COALESCE(SUM(b.total_price_paid), 0)
 		FROM bets tb
 		JOIN outcomes o ON b.outcome_id = o.id 
 		WHERE o.market_id = m.id 

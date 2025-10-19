@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"seer/internal/finance"
 	"seer/internal/market"
+	"seer/internal/numeric"
 	"seer/internal/utils"
 	"time"
 
@@ -28,12 +29,12 @@ func NewTransactionHandler(validate *validator.Validate, tm *market.TransactionM
 }
 
 type betReq struct {
-	BetAmountCents  int64     `json:"betAmountCents" validate:"required,min=100,max=1000000"` // Min 1 USDT, max 10k USDT
-	QuotedGainCents int64     `json:"quotedGainCents" validate:"required,gtfield=BetAmountCents"`
-	MarketID        uuid.UUID `json:"marketId" validate:"required"`
-	OutcomeID       int64     `json:"outcomeId" validate:"required"`
-	Currency        string    `json:"currency" validate:"required,oneof=USDT"`
-	IdempotencyKey  string    `json:"idempotencyKey" validate:"required,max=36"`
+	BetAmount      *numeric.BigDecimal `json:"betAmount" validate:"required"`
+	MinWantedGain  *numeric.BigDecimal `json:"minWantedGain" validate:"required,dec_scale=2,dec_min=0.5,dec_max=1000000"`
+	MarketID       uuid.UUID           `json:"marketId" validate:"required"`
+	OutcomeID      int64               `json:"outcomeId" validate:"required"`
+	Currency       finance.Currency    `json:"currency" validate:"required,oneof=USDT"`
+	IdempotencyKey string              `json:"idempotencyKey" validate:"required,max=36"`
 }
 
 func (h *TransactionHandler) PlaceBet(c echo.Context) error {
@@ -52,12 +53,18 @@ func (h *TransactionHandler) PlaceBet(c echo.Context) error {
 	user := utils.ContextGetUser(c)
 	ctx := c.Request().Context()
 
+	// Retrieve the user's ledger account ID for the specified currency
+	userLedgerAccountID, err := h.fm.GetLedgerAccountForCurrency(ctx, user.ID, b.Currency, finance.AccountLiability)
+	if err != nil {
+		return fmt.Errorf("failed to get user ledger account ID: %w", err)
+	}
+
 	br := market.BetRequest{
-		UserID:          user.ID,
+		LedgerAccountID: userLedgerAccountID,
 		MarketID:        b.MarketID,
 		OutcomeID:       b.OutcomeID,
-		BetAmountCents:  b.BetAmountCents,
-		QuotedGainCents: b.QuotedGainCents,
+		BetAmount:       b.BetAmount,
+		MinWantedGain:   b.MinWantedGain,
 		IdempotencyKey:  b.IdempotencyKey,
 		Currency:        "USDT",
 	}
@@ -67,6 +74,37 @@ func (h *TransactionHandler) PlaceBet(c echo.Context) error {
 	}
 
 	return echo.NewHTTPError(http.StatusOK, "bet succesfully placed")
+}
+
+type cashoutReq struct {
+	BetID          uuid.UUID           `json:"betId" validate:"required"`
+	MinWantedGain  *numeric.BigDecimal `json:"minWantedGain" validate:"required,dec_scale=2,dec_max=1000000"`
+	IdempotencyKey string              `json:"idempotencyKey" validate:"required,max=36"`
+}
+
+func (h *TransactionHandler) CashoutBet(c echo.Context) error {
+	r := &cashoutReq{}
+	if err := utils.ParseAndValidateJSON(c.Request().Body, r, h.validate); err != nil {
+		return err
+	}
+
+	user := utils.ContextGetUser(c)
+	ctx := c.Request().Context()
+
+	cr := &market.CashoutRequest{
+		BetID:          r.BetID,
+		UserID:         user.ID,
+		MinWantedGain:  r.MinWantedGain,
+		IdempotencyKey: r.IdempotencyKey,
+	}
+
+	if _, err := h.tm.CashoutBet(ctx, cr); err != nil {
+		fmt.Println("error cashing out bet:", err)
+		return mapErrorRepo(err)
+	}
+
+	return echo.NewHTTPError(http.StatusOK, "bet succesfully cashed out")
+
 }
 
 type balanceReq struct {

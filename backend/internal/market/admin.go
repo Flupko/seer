@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"seer/internal/numeric"
 	"time"
 
 	"github.com/google/uuid"
@@ -41,16 +42,16 @@ func (am *AdminManager) CreateMarket(ctx context.Context, m *Market, categoryIDs
 
 	// Create the market
 	query = `INSERT INTO markets(status, 
-	name, description, 
-	house_ledger_account_id, q0_seeding, alpha_ppm, fee_ppm, 
+	name, description, currency, img_key,
+	house_ledger_account_id, q0_seeding, alpha, fee, cap_price,
 	outcome_sort,
 	close_time)
-	VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	RETURNING id`
 
 	err = tx.QueryRow(ctx, query, StatusDraft,
-		m.Name, m.Description,
-		m.HouseLedgerAccountID, m.Q0Seeding, m.AlphaPPM, m.FeePPM,
+		m.Name, m.Description, m.Currency, m.ImgKey,
+		m.HouseLedgerAccountID, m.Q0Seeding, m.Alpha, m.Fee, m.CapPrice,
 		m.OutcomeSort,
 		m.CloseTime).Scan(&m.ID)
 	if err != nil {
@@ -105,9 +106,9 @@ func (ma *AdminManager) GetMarketStatus(ctx context.Context, marketID uuid.UUID)
 	return status, nil
 }
 
-func (ma *AdminManager) UpdateMarketFees(ctx context.Context, marketID uuid.UUID, newFeePPM int64) error {
+func (ma *AdminManager) UpdateMarketFees(ctx context.Context, marketID uuid.UUID, newFee *numeric.BigDecimal) error {
 
-	cmd, err := ma.db.Exec(ctx, `UPDATE markets SET fee_ppm = $1 WHERE id = $2`, newFeePPM, marketID)
+	cmd, err := ma.db.Exec(ctx, `UPDATE markets SET fee = $1 WHERE id = $2`, newFee, marketID)
 
 	if err != nil {
 		return fmt.Errorf("failed to update fee: %w", err)

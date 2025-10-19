@@ -1,7 +1,7 @@
-import { motion } from "motion/react";
+import { ButtonHTMLAttributes } from "react";
 import Loader from "./loader/Loader";
 
-type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
+type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   width: "small" | "full";
   height?: "small" | "large";
   bg: string;
@@ -12,19 +12,19 @@ type ButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
   disabled?: boolean;
 };
 
-export default function Button({ 
-  width, 
-  height = "small", 
-  bg, 
-  children, 
-  onClick, 
-  className, 
+export default function Button({
+  width,
+  height = "small",
+  bg,
+  children,
+  onClick,
+  className,
   isLoading = false,
   disabled = false,
-  ...rest 
+  ...rest
 }: ButtonProps) {
   const widthClasses = {
-    small: "px-3.5",
+    small: "px-4",
     full: "w-full",
   };
 
@@ -44,7 +44,7 @@ export default function Button({
         select-none 
         text-sm 
         text-white 
-        font-semibold 
+        font-medium 
         rounded-md
         transition-all 
         duration-200

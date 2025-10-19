@@ -3,14 +3,16 @@ package market
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"seer/internal/numeric"
 	"seer/internal/utils"
 	"seer/internal/utils/meta"
-	"sort"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
@@ -27,9 +29,14 @@ func NewQueryManager(db *pgxpool.Pool, rdb *redis.Client) *QueryManager {
 	}
 }
 
-func (qm *QueryManager) GetAllCategories(ctx context.Context) ([]Category, error) {
+func (qm *QueryManager) GetAllFeaturedCategories(ctx context.Context) ([]Category, error) {
 
-	rows, err := qm.db.Query(ctx, `SELECT id, slug, label FROM categories`)
+	query := `SELECT id, slug, label, iconUrl 
+	FROM categories
+	WHERE featured = TRUE
+	ORDER BY position`
+
+	rows, err := qm.db.Query(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("failed to retrieve categories: %w", err)
 	}
@@ -38,7 +45,7 @@ func (qm *QueryManager) GetAllCategories(ctx context.Context) ([]Category, error
 
 	for rows.Next() {
 		var c Category
-		if err := rows.Scan(&c.ID, &c.Slug, &c.Label); err != nil {
+		if err := rows.Scan(&c.ID, &c.Slug, &c.Label, &c.IconUrl); err != nil {
 			return nil, fmt.Errorf("failed to scan category: %w", err)
 		}
 		categories = append(categories, c)
@@ -76,20 +83,22 @@ func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skip
 	}
 
 	query := fmt.Sprintf(`SELECT count(*) OVER() AS total_count,
-	m.id, m.name, m.description, m.status, 
-	m.house_ledger_account_id, m.q0_seeding, m.alpha_ppm, m.fee_ppm, m.volume_cents,
+	m.id, m.name, m.description, m.img_key,
+	m.status,
+	m.house_ledger_account_id, m.q0_seeding, m.alpha, m.fee, m.cap_price,
+	m.volume,
 	m.created_at, m.close_time, 
 	m.outcome_sort,
 	m.version
 	FROM markets m
 	WHERE ($1 = '' OR to_tsvector('simple', m.name || ' ' || m.description) @@ to_tsquery('simple', $1))
-	AND ($2::BIGINT IS NULL OR EXISTS( SELECT 1 FROM categories_market cm WHERE cm.market_id = m.id AND cm.category_id = $2) )
+	AND ($2::TEXT IS NULL OR EXISTS(SELECT 1 FROM categories_market cm JOIN categories c ON cm.category_id = c.id WHERE cm.market_id = m.id AND c.slug = $2))
 	AND ($3::TEXT IS NULL OR m.status = $3)
 	ORDER BY %s
 	LIMIT $4 OFFSET $5
 	`, sq.GetOrderBy())
 
-	rows, err := qm.db.Query(ctx, query, tsQuery, sq.CategoryID, sq.Status, sq.Limit(), sq.Offset())
+	rows, err := qm.db.Query(ctx, query, tsQuery, sq.CategorySlug, sq.Status, sq.Limit(), sq.Offset())
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to query rows markets: %w", err)
 	}
@@ -103,8 +112,10 @@ func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skip
 
 		err = rows.Scan(
 			&totalCount,
-			&m.ID, &m.Name, &m.Description, &m.Status,
-			&m.HouseLedgerAccountID, &m.Q0Seeding, &m.AlphaPPM, &m.FeePPM, &m.VolumeCents,
+			&m.ID, &m.Name, &m.Description, &m.ImgKey,
+			&m.Status,
+			&m.HouseLedgerAccountID, &m.Q0Seeding, &m.Alpha, &m.Fee, &m.CapPrice,
+			&m.Volume,
 			&m.CreatedAt, &m.CloseTime, &m.OutcomeSort, &m.Version,
 		)
 
@@ -120,7 +131,7 @@ func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skip
 	}
 
 	if len(markets) == 0 {
-		return []*MarketView{}, &meta.Metadata{}, nil
+		return []*MarketView{}, meta.CalculateMetadata(0, sq.Page, sq.PageSize), nil
 	}
 
 	// Build market IDs slice
@@ -141,22 +152,10 @@ func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skip
 
 		m.Outcomes = outcomesByMarket[m.ID]
 
-		qVec := make([]int64, len(m.Outcomes))
+		qVec := make([]*numeric.BigDecimal, len(m.Outcomes))
 		for i, o := range m.Outcomes {
 			qVec[i] = o.Quantity
 		}
-
-		pricesPPM, active, err := PricesPPM(qVec, m.AlphaPPM, m.FeePPM)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to compute prices for market %s", m.ID)
-		}
-
-		for i := range m.Outcomes {
-			m.Outcomes[i].Active = m.Status == StatusOpened && active[i]
-			m.Outcomes[i].PricePPM = pricesPPM[i]
-		}
-
-		qm.sortOutcomes(m.Outcomes, m.OutcomeSort)
 
 	}
 
@@ -187,9 +186,9 @@ func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skip
 
 }
 
-func (qm *QueryManager) getOutcomesForMarkets(ctx context.Context, marketIDs []uuid.UUID) (map[uuid.UUID][]OutcomeView, error) {
+func (qm *QueryManager) getOutcomesForMarkets(ctx context.Context, marketIDs []uuid.UUID) (map[uuid.UUID][]Outcome, error) {
 	query := `
-        SELECT o.market_id, o.id, o.name, o.position, o.quantity, o.volume_cents
+        SELECT o.market_id, o.id, o.name, o.position
         FROM outcomes o
         WHERE o.market_id = ANY($1)
         ORDER BY o.id
@@ -202,12 +201,12 @@ func (qm *QueryManager) getOutcomesForMarkets(ctx context.Context, marketIDs []u
 
 	defer rows.Close()
 
-	outcomesByMarket := make(map[uuid.UUID][]OutcomeView)
+	outcomesByMarket := make(map[uuid.UUID][]Outcome)
 
 	for rows.Next() {
-		var o OutcomeView
+		var o Outcome
 		var marketID uuid.UUID
-		if err := rows.Scan(&marketID, &o.ID, &o.Name, &o.Position, &o.Quantity, &o.VolumeCents); err != nil {
+		if err := rows.Scan(&marketID, &o.ID, &o.Name, &o.Position); err != nil {
 			return nil, fmt.Errorf("failed to scan outcome: %w", err)
 		}
 		outcomesByMarket[marketID] = append(outcomesByMarket[marketID], o)
@@ -219,7 +218,7 @@ func (qm *QueryManager) getOutcomesForMarkets(ctx context.Context, marketIDs []u
 func (qm *QueryManager) getCategoriesForMarkets(ctx context.Context, marketIDs []uuid.UUID) (map[uuid.UUID][]Category, error) {
 
 	query := `
-        SELECT cm.market_id, c.id, c.slug, c.label
+        SELECT cm.market_id, c.id, c.slug, c.label, c.iconUrl
         FROM categories_market cm
         JOIN categories c ON cm.category_id = c.id
         WHERE cm.market_id = ANY($1)
@@ -239,7 +238,7 @@ func (qm *QueryManager) getCategoriesForMarkets(ctx context.Context, marketIDs [
 		var c Category
 		var marketID uuid.UUID
 
-		err = rows.Scan(&marketID, &c.ID, &c.Slug, &c.Label)
+		err = rows.Scan(&marketID, &c.ID, &c.Slug, &c.Label, &c.IconUrl)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan category: %w", err)
 		}
@@ -256,23 +255,50 @@ func (qm *QueryManager) getCategoriesForMarkets(ctx context.Context, marketIDs [
 
 }
 
-func (qm *QueryManager) sortOutcomes(outcomes []OutcomeView, outcomeSort MarketOutcomeSort) {
+func (qm *QueryManager) GetMarketByID(ctx context.Context, marketID uuid.UUID) (*MarketView, error) {
+	query := `SELECT m.id, m.name, m.description, m.img_key,
+	m.status,
+	m.house_ledger_account_id, m.q0_seeding, m.alpha, m.fee, m.cap_price,
+	m.volume,
+	m.created_at, m.close_time, 
+	m.outcome_sort,
+	m.version
+	FROM markets m
+	WHERE m.id = $1`
 
-	switch outcomeSort {
-	case SortPrice:
-		sort.Slice(outcomes, func(i, j int) bool {
-			return outcomes[i].PricePPM < outcomes[j].PricePPM
-		})
-	case SortPosition:
-		sort.Slice(outcomes, func(i, j int) bool {
-			return outcomes[i].Position < outcomes[j].Position
-		})
-	// position by default
-	default:
-		sort.Slice(outcomes, func(i, j int) bool {
-			return outcomes[i].Position < outcomes[j].Position
-		})
+	m := &MarketView{}
+	err := qm.db.QueryRow(ctx, query, marketID).Scan(
+		m.ID, &m.Name, &m.Description, &m.ImgKey,
+		&m.Status,
+		&m.HouseLedgerAccountID, &m.Q0Seeding, &m.Alpha, &m.Fee, &m.CapPrice,
+		&m.Volume,
+		&m.CreatedAt, &m.CloseTime, &m.OutcomeSort, &m.Version,
+	)
+
+	if err != nil {
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			return nil, ErrMarketNotFound
+		default:
+			return nil, fmt.Errorf("failed to query market by id: %w", err)
+		}
 	}
+
+	// Get outcomes
+	outcomesByMarket, err := qm.getOutcomesForMarkets(ctx, []uuid.UUID{marketID})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get outcomes: %w", err)
+	}
+	m.Outcomes = outcomesByMarket[m.ID]
+
+	// Get categories
+	categoriesByMarket, err := qm.getCategoriesForMarkets(ctx, []uuid.UUID{marketID})
+	if err != nil {
+		return nil, fmt.Errorf("failed to get categories: %w", err)
+	}
+	m.Categories = categoriesByMarket[m.ID]
+
+	return m, nil
 }
 
 func (qm *QueryManager) buildCacheKey(sq *SearchQuery) string {
@@ -281,5 +307,5 @@ func (qm *QueryManager) buildCacheKey(sq *SearchQuery) string {
 		queryStr = *sq.Query
 	}
 	return fmt.Sprintf("market_search:%s:%v:%s:%s:%d:%d",
-		queryStr, sq.CategoryID, sq.Status, sq.Sort, sq.Page, sq.PageSize)
+		queryStr, sq.CategorySlug, sq.Status, sq.Sort, sq.Page, sq.PageSize)
 }

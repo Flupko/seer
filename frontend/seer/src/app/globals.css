@@ -3,8 +3,10 @@
 body {
   margin: 0;
   padding: 0;
-  background-color: rgb(8, 8, 8);
+  background-color: var(--color-gray-scale-black);
   color: white;
+  border: none;
+  box-sizing: border-box;
 }
 
 .font-numbers {
@@ -13,8 +15,17 @@ body {
 
 
 :root {
-  --color-main-blue: #26e3a4;
-  --color-neon-blue: #26e3a4c0;
+
+  --color-grayscale-black: #080808;
+
+  --color-primary-blue: #1E90FF;
+  /* --color-primary-blue: #49a1f9; */
+  --color-neon-blue: #0080ff;
+  --color-blue-pressed:#004386;
+
+  --primary-blue-filter: brightness(0) saturate(100%) invert(54%) sepia(98%) saturate(1675%) hue-rotate(186deg) brightness(100%) contrast(96%);
+  --neon-blue-filter: brightness(0) saturate(100%) invert(34%) sepia(23%) saturate(7463%) hue-rotate(197deg) brightness(103%) contrast(107%);
+
    /* --color-neon-blue: #26e3a4c0; */
   --color-gray-special: #292e38;
   --color-gray-900: #121418;
@@ -41,8 +52,15 @@ body {
 
 /* Variables */
 @theme {
-  --color-neon-blue: #26e3a4c0;
-  --color-main-blue: #26e3a4;
+  --color-grayscale-black: #080808;
+
+  --color-primary-blue: #1E90FF;
+  --color-neon-blue: #0080ff;
+  --color-blue-pressed:#004386;
+
+  --primary-blue-filter: brightness(0) saturate(100%) invert(54%) sepia(98%) saturate(1675%) hue-rotate(186deg) brightness(100%) contrast(96%);
+  --neon-blue-filter: brightness(0) saturate(100%) invert(34%) sepia(23%) saturate(7463%) hue-rotate(197deg) brightness(103%) contrast(107%);
+
   --color-gray-special: #292e38;
   --color-gray-900: #121418;
   --color-gray-800: #202329;
@@ -54,6 +72,9 @@ body {
   --color-gray-200: #bec6d1;
   --color-gray-100: #e6ecf1;
 }
+
+
+
 
 /* :root {
   --color-main-blue: #26e3a4;
@@ -68,3 +89,44 @@ body {
   --color-gray-300: #9ba5b4;
   --color-gray-200: #bec6d1;
   --color-gray-100: #e6ecf1; */
+
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.hide-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Firefox */
+input[type=number] {
+  -moz-appearance: textfield;
+}
+
+
+
+
+/* first primary from which neon was dervied  */
+/* --color-primary-blue: #1E90FF;
+--color-primary-blue: #49a1f9;
+--color-neon-blue: #0080ff;
+--color-blue-pressed:#004386; */
+
+
+  /* --color-primary-blue: #1E90FF; */
+  /* --color-primary-blue: #49a1f9;
+  --color-neon-blue: #0080ff;
+  --color-blue-pressed:#004386;
+
+  --primary-blue-filter: brightness(0) saturate(100%) invert(54%) sepia(98%) saturate(1675%) hue-rotate(186deg) brightness(100%) contrast(96%);
+  --neon-blue-filter: brightness(0) saturate(100%) invert(34%) sepia(23%) saturate(7463%) hue-rotate(197deg) brightness(103%) contrast(107%); */

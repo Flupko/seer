@@ -1,14 +1,16 @@
 "use client";
 
-import { useSearchParams, useRouter } from "next/navigation";
+import { useModalStore } from "@/lib/stores/modal";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
 import { toast } from "react-toastify";
-import { useModal } from "@/ui/modal/Modal";
 
 export default function URLHandler() {
+
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { openModal } = useModal();
+
+  const openModal = useModalStore((state) => state.openModal);
 
   useEffect(() => {
     const error = searchParams.get("error");
@@ -17,7 +19,7 @@ export default function URLHandler() {
     if (error) {
       const errorMessage = decodeURIComponent(error);
       toast.error(errorMessage);
-      
+
       // Clean URL after showing toast, we remove the error part
       const newParams = new URLSearchParams(searchParams);
       newParams.delete("error");
@@ -27,7 +29,7 @@ export default function URLHandler() {
     // Handle profile completion modal
     if (show === "profile_completion") {
       openModal("profileCompletion");
-      
+
       // Clean URL after opening modal, we remove the show part
       const newParams = new URLSearchParams(searchParams);
       newParams.delete("show");

@@ -3,6 +3,8 @@ package market
 import (
 	"database/sql"
 	"fmt"
+	"seer/internal/finance"
+	"seer/internal/numeric"
 	"seer/internal/utils/meta"
 	"time"
 
@@ -31,13 +33,16 @@ type Market struct {
 	ID          uuid.UUID
 	Name        string
 	Description string
+	Currency    finance.Currency
 	Status      MarketStatus
+	ImgKey      string
 
 	HouseLedgerAccountID uuid.UUID
-	Q0Seeding            int64
-	AlphaPPM             int64
-	FeePPM               int64
-	VolumeCents          int64
+	Q0Seeding            *numeric.BigDecimal
+	Alpha                *numeric.BigDecimal
+	Fee                  *numeric.BigDecimal
+	Volume               *numeric.BigDecimal
+	CapPrice             *numeric.BigDecimal
 
 	CreatedAt time.Time
 	CloseTime sql.NullTime
@@ -48,24 +53,18 @@ type Market struct {
 }
 
 type Outcome struct {
-	ID          int64
-	MarketID    int64
-	Name        string
-	Quantity    int64
-	VolumeCents int64
-	Position    int64
-}
-
-type OutcomeView struct {
-	Outcome
-	Active   bool `json:"active"`
-	PricePPM int64
+	ID       int64
+	MarketID int64
+	Name     string
+	Quantity *numeric.BigDecimal
+	Volume   *numeric.BigDecimal
+	Position int64
 }
 
 type MarketView struct {
 	Market
 	Categories []Category
-	Outcomes   []OutcomeView
+	Outcomes   []Outcome
 }
 
 type MarketSearchResult struct {
@@ -74,16 +73,26 @@ type MarketSearchResult struct {
 }
 
 type Bet struct {
-	ID                  uuid.UUID
-	LedgerAccountID     uuid.UUID
-	OutcomeID           int64
-	PayoutCents         int64
-	TotalPricePaidCents int64
-	FeePaidCents        int64
-	FeePPM              int64
-	PricePPM            int64
-	PlacedAt            time.Time
-	IdempotencyKey      string
+	ID               uuid.UUID
+	LedgerAccountID  uuid.UUID
+	LedgerTransferID uuid.UUID
+	OutcomeID        int64
+	Payout           *numeric.BigDecimal
+	TotalPricePaid   *numeric.BigDecimal
+	FeeApplied       *numeric.BigDecimal
+	FeePaid          *numeric.BigDecimal
+	AvgPrice         *numeric.BigDecimal
+	PlacedAt         time.Time
+	IdempotencyKey   string
+}
+
+type BetCashout struct {
+	ID               uuid.UUID
+	BetID            uuid.UUID
+	LedgerTransferID uuid.UUID
+	Payout           *numeric.BigDecimal
+	PlacedAt         time.Time
+	IdempotencyKey   string
 }
 
 type BetView struct {
@@ -97,36 +106,40 @@ type BetView struct {
 	MarketID    uuid.UUID
 	MarketName  string
 	OutcomeID   int64
+	Currency    finance.Currency
 	OutcomeName string
 }
 
 type Category struct {
-	ID    int64
-	Slug  string
-	Label string
+	ID       int64
+	Slug     string
+	Label    string
+	Position int64
+	IconUrl  string
+	Featured bool
 }
 
 type SortMarket string
 
 const (
-	SortHot        SortMarket = "hot"
+	SortTrending   SortMarket = "trending"
 	SortVolume     SortMarket = "volume"
 	SortNewest     SortMarket = "newest"
 	SortEndingSoon SortMarket = "endingSoon"
 )
 
 var marketSortSafeMap = map[SortMarket]string{
-	SortHot:        "volume_24h DESC",
+	SortTrending:   "volume_24h DESC",
 	SortNewest:     "created_at DESC",
-	SortVolume:     "volume_cents DESC",
+	SortVolume:     "volume DESC",
 	SortEndingSoon: "CASE WHEN close_time IS NULL THEN 'infinity'::timestamp ELSE close_time END ASC",
 }
 
 type SearchQuery struct {
 	Query *string
 
-	CategoryID *int64
-	Status     MarketStatus
+	CategorySlug *string
+	Status       MarketStatus
 
 	Sort SortMarket
 
@@ -167,8 +180,8 @@ type BetSearchQuery struct {
 	MarketID *uuid.UUID
 	Status   *BetStatus
 
-	MinPriceCents *int64
-	MaxPriceCents *int64
+	MinPrice *numeric.BigDecimal
+	MaxPrice *numeric.BigDecimal
 
 	FromTime *time.Time
 	ToTime   *time.Time
@@ -190,8 +203,8 @@ const (
 
 var betSortSafeMap = map[SortBet]string{
 	SortPlacedAt: "placed_at",
-	SortWager:    "total_price_paid_cents",
-	SortPayout:   "payout_cents",
+	SortWager:    "total_price_paid",
+	SortPayout:   "payout",
 }
 
 func (sq *BetSearchQuery) GetOrderBy() string {
@@ -217,37 +230,17 @@ func (sq *BetSearchQuery) Offset() int64 {
 }
 
 // HOT Types (for cache and WS push)
-
 type MarketState struct {
-	ID            uuid.UUID `json:"marketId"`
-	Version       int64     `json:"marketVersion"`
-	AlphaPPM      int64     `json:"alphaPPM"`
-	FeePPM        int64     `json:"feePPM"`
-	OutcomeIDs    []int64   `json:"outcomeIDs"`
-	QVec          []int64   `json:"qVec"`
-	PricesPPM     []int64   `json:"pricesPPH"`
-	OutcomeActive []bool    `json:"outcomesActive"`
-	UpdatedAtUnix int64     `json:"updateAtUnivex"`
+	ID            uuid.UUID             `json:"marketId"`
+	Version       int64                 `json:"marketVersion"`
+	Alpha         *numeric.BigDecimal   `json:"alpha"`
+	Fee           *numeric.BigDecimal   `json:"fee"`
+	CapPrice      *numeric.BigDecimal   `json:"capPrice"`
+	OutcomeIDs    []int64               `json:"outcomeIDs"`
+	QVec          []*numeric.BigDecimal `json:"qVec"`
+	Prices        []*numeric.BigDecimal `json:"price"`
+	UpdatedAtUnix int64                 `json:"updateAtUnivex"`
 }
-
-type WSPayloadOutcomeUpdate struct {
-	ID      int64 `json:"id"`
-	ProbPPM int64 `json:"probPPM"`
-	Active  bool  `json:"active"`
-}
-
-type WSPayloadMarketUpdate struct {
-	ID       uuid.UUID `json:"marketID"`
-	Version  int64     `json:"marketVersion"`
-	Outcomes []WSPayloadOutcomeUpdate
-}
-
-type BetUpdateType string
-
-const (
-	Latest     BetUpdateType = "latest"
-	HighRoller BetUpdateType = "highRoller"
-)
 
 type BetState struct {
 	ID          uuid.UUID `json:"id"`
@@ -255,12 +248,13 @@ type BetState struct {
 	MarketName  string    `json:"marketName"`
 	OutcomeID   int64     `json:"outcomeId"`
 	OutcomeName string    `json:"outcomeName"`
-	Username    *string   `json:"username"`
-	WagerCents  int64     `json:"wageCents"`
-	ProbPPM     int64     `json:"ProbPPM"`
-	PlacedAt    time.Time `json:"placedAt"`
+	User        *struct {
+		ID              uuid.UUID `json:"id"`
+		Username        string    `json:"username"`
+		ProfileImageKey string    `json:"profileImageKey"`
+	} `json:"user,omitempty"`
+	Wager    *numeric.BigDecimal `json:"wager"`
+	Payout   *numeric.BigDecimal `json:"payout"`
+	AvgPrice *numeric.BigDecimal `json:"avgPrice"`
+	PlacedAt time.Time           `json:"placedAt"`
 }
-
-const WsMarketRoomPrefix = "market:"
-
-// Pubsub types

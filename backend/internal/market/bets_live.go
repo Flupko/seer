@@ -6,25 +6,28 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"seer/internal/numeric"
 	"seer/internal/ps"
 	"seer/internal/utils"
 	"seer/internal/ws"
 	"strings"
 	"time"
 
+	"github.com/ericlagergren/decimal"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 )
 
 const (
-	WsBetsLatestRoom      = "bets:latest"
-	WsBetsHighRoom        = "bets:high"
-	betUpdateTimeout      = 5 * time.Second
-	latestBetsKey         = "bets:latest" // latest bets
-	highBetsKey           = "bets:high"   // high bets
-	highBetsTresholdCents = 100_00        // 100 USDT is a high bet
-	nbBetsKept            = 10
+	betUpdateTimeout = 5 * time.Second
+	latestBetsKey    = "bets:latest" // latest bets
+	highBetsKey      = "bets:high"   // high bets
+	nbBetsKept       = 10
+)
+
+var (
+	highBetsTresholdCents = numeric.BigDecimal{Big: *decimal.New(100, 0)} // 100 USDT is a high bet
 )
 
 type BetLiveManager struct {
@@ -132,11 +135,11 @@ func (blm *BetLiveManager) updateBetLive(payload string) error {
 	// Latest
 	var err1, err2 error
 
-	err1 = blm.updateCacheAndPub(updateCtx, bs, latestBetsKey, WsBetsLatestRoom)
+	err1 = blm.updateCacheAndPub(updateCtx, bs, latestBetsKey, ws.BetsLatestRoom)
 
 	// Check if high bet
-	if bs.WagerCents >= highBetsTresholdCents {
-		err2 = blm.updateCacheAndPub(updateCtx, bs, highBetsKey, WsBetsHighRoom)
+	if bs.Wager.Cmp(&highBetsTresholdCents.Big) >= 0 {
+		err2 = blm.updateCacheAndPub(updateCtx, bs, highBetsKey, ws.BetsHighRoom)
 	}
 
 	return errors.Join(err1, err2)
@@ -149,9 +152,11 @@ func (blm *BetLiveManager) retrieveBetStateDB(ctx context.Context, betID uuid.UU
 
 	query := `SELECT b.id, m.id, m.name, 
 	o.id, o.name, 
-	u.username, u.hidden, 
-	b.total_price_paid_cents AS wager_cents,
-	b.payout_cents,
+	u.id, u.username, COALESCE(u.profile_image_key, ''),
+	u.hidden, 
+	b.total_price_paid AS wager,
+	b.payout,
+	b.avg_price,
 	b.placed_at
 	FROM bets b
 	JOIN outcomes o ON o.id = b.outcome_id
@@ -161,13 +166,18 @@ func (blm *BetLiveManager) retrieveBetStateDB(ctx context.Context, betID uuid.UU
 	WHERE b.id = $1
 	`
 
-	var payoutCents int64
-	var username string
+	user := &struct {
+		ID              uuid.UUID `json:"id"`
+		Username        string    `json:"username"`
+		ProfileImageKey string    `json:"profileImageKey"`
+	}{}
+
 	var userHidden bool
 	err := blm.db.QueryRow(ctx, query, betID).Scan(&bs.ID, &bs.MarketID, &bs.MarketName,
 		&bs.OutcomeID, &bs.OutcomeName,
-		&username, &userHidden,
-		&bs.WagerCents, &payoutCents,
+		&user.ID, &user.Username, &user.ProfileImageKey,
+		&userHidden,
+		&bs.Wager, &bs.Payout, &bs.AvgPrice,
 		&bs.PlacedAt)
 
 	if err != nil {
@@ -175,16 +185,8 @@ func (blm *BetLiveManager) retrieveBetStateDB(ctx context.Context, betID uuid.UU
 	}
 
 	if !userHidden {
-		bs.Username = &username
+		bs.User = user
 	}
-
-	pricePPM, err := ComputePricePPM(bs.WagerCents, payoutCents)
-
-	if err != nil {
-		return nil, fmt.Errorf("failed to compute prices for bet : %w", err)
-	}
-
-	bs.ProbPPM = pricePPM
 
 	return bs, nil
 }
@@ -192,10 +194,12 @@ func (blm *BetLiveManager) retrieveBetStateDB(ctx context.Context, betID uuid.UU
 func (blm *BetLiveManager) PrepopulateLatestBets(ctx context.Context) error {
 
 	query := `SELECT b.id, m.id, m.name, 
-        o.id, o.name, 
-        u.username, u.hidden, 
-        b.total_price_paid_cents AS wager_cents,
-        b.payout_cents,
+		o.id, o.name, 
+		u.id, u.username, COALESCE(u.profile_image_key, ''),
+		u.hidden, 
+		b.total_price_paid AS wager,
+		b.payout,
+		b.avg_price,
 		b.placed_at
         FROM bets b
 		JOIN outcomes o ON o.id = b.outcome_id
@@ -211,17 +215,19 @@ func (blm *BetLiveManager) PrepopulateLatestBets(ctx context.Context) error {
 func (blm *BetLiveManager) PrepopulateHighBets(ctx context.Context) error {
 
 	query := `SELECT b.id, m.id, m.name, 
-        o.id, o.name, 
-        u.username, u.hidden, 
-        b.total_price_paid_cents AS wager_cents,
-        b.payout_cents,
+		o.id, o.name, 
+		u.id, u.username, COALESCE(u.profile_image_key, ''),
+		u.hidden, 
+		b.total_price_paid AS wager,
+		b.payout,
+		b.avg_price,
 		b.placed_at
         FROM bets b
 		JOIN outcomes o ON o.id = b.outcome_id
 		JOIN markets m ON m.id = o.market_id
         JOIN ledger_accounts la ON la.id = b.ledger_account_id
         JOIN users u ON u.id = la.user_id
-		WHERE b.total_price_paid_cents >= $1
+		WHERE b.total_price_paid >= $1
         ORDER BY b.placed_at DESC
         LIMIT $2`
 
@@ -241,15 +247,19 @@ func (blm *BetLiveManager) prepopulateBets(ctx context.Context, cacheKey string,
 
 	for rows.Next() {
 		bs := &BetState{}
-		var payoutCents int64
-		var username string
+		user := &struct {
+			ID              uuid.UUID `json:"id"`
+			Username        string    `json:"username"`
+			ProfileImageKey string    `json:"profileImageKey"`
+		}{}
 		var userHidden bool
 
 		err := rows.Scan(
 			&bs.ID, &bs.MarketID, &bs.MarketName,
 			&bs.OutcomeID, &bs.OutcomeName,
-			&username, &userHidden,
-			&bs.WagerCents, &payoutCents,
+			&user.ID, &user.Username, &user.ProfileImageKey,
+			&userHidden,
+			&bs.Wager, &bs.Payout, &bs.AvgPrice,
 			&bs.PlacedAt)
 
 		if err != nil {
@@ -257,16 +267,9 @@ func (blm *BetLiveManager) prepopulateBets(ctx context.Context, cacheKey string,
 		}
 
 		if !userHidden {
-			bs.Username = &username
+			bs.User = user
 		}
 
-		pricePPM, err := ComputePricePPM(bs.WagerCents, payoutCents)
-		if err != nil {
-			blm.logger.Warn("failed to compute prices for bet")
-			continue
-		}
-
-		bs.ProbPPM = pricePPM
 		bets = append(bets, bs)
 	}
 
@@ -341,7 +344,27 @@ func (blm *BetLiveManager) GetHighBets(ctx context.Context) ([]*BetState, error)
 
 func (blm *BetLiveManager) updateCacheAndPub(ctx context.Context, bs *BetState, listKey, wsRoom string) error {
 
-	data, err := json.Marshal(bs)
+	wsPayload := ws.BetUpdate{
+		ID:          bs.ID,
+		MarketID:    bs.MarketID,
+		MarketName:  bs.MarketName,
+		OutcomeID:   bs.OutcomeID,
+		OutcomeName: bs.OutcomeName,
+		Wager:       bs.Wager,
+		Payout:      bs.Payout,
+		AvgPrice:    bs.AvgPrice,
+		PlacedAt:    bs.PlacedAt,
+	}
+
+	if bs.User != nil {
+		wsPayload.User = &ws.UserState{
+			ID:              bs.User.ID,
+			Username:        bs.User.Username,
+			ProfileImageKey: bs.User.ProfileImageKey,
+		}
+	}
+
+	data, err := json.Marshal(wsPayload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal bet state: %w", err)
 	}

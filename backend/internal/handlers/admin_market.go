@@ -4,7 +4,9 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"seer/internal/finance"
 	"seer/internal/market"
+	"seer/internal/numeric"
 	"seer/internal/utils"
 	"slices"
 	"time"
@@ -36,9 +38,12 @@ type outcomeCreateReq struct {
 type createMarketReq struct {
 	Name        string                   `json:"name" validate:"required,min=5"`
 	Description string                   `json:"description" validate:"required,min=10"`
-	Q0_Seeding  int64                    `json:"q0Seeding" validate:"required,min=1,max=100000"`     // Max seeding of 1000 USDT per shares
-	AlphaPPM    int64                    `json:"alphaPPM" validate:"required,min=10000,max=1000000"` // Between 0.01 and 1
-	FeePPM      int64                    `json:"feePPM" validate:"required,min=10000,max=100000"`    // Between 1% and 10%
+	Currency    finance.Currency         `json:"currency" validate:"required,oneof=USDT"`
+	ImgKey      string                   `json:"imgKey" validate:"required"`
+	Q0_Seeding  *numeric.BigDecimal      `json:"q0Seeding" validate:"dec_min=1,dec_max=1000"`          // Max seeding of 1000 USDT per shares
+	Alpha       *numeric.BigDecimal      `json:"alpha" validate:"dec_min=0.01,dec_max=1,dec_scale=12"` // Between 0.01 and 1
+	Fee         *numeric.BigDecimal      `json:"fee" validate:"dec_min=0.01,dec_max=0.1"`              // Between 1% and 10%
+	CapPrice    *numeric.BigDecimal      `json:"capPrice" validate:"required,dec_max=1,dec_scale=12"`  // Between 0.5 and 1
 	OutcomeSort market.MarketOutcomeSort `json:"outcomeSort" validate:"required,oneof=price position"`
 	CloseTime   *time.Time               `json:"closeTime"` // Between 1 hour and 7 days
 	CategoryIDs []int64                  `json:"categoryIds" validate:"required,dive,gt=0"`
@@ -55,8 +60,11 @@ func (h *AdminMarketHandler) CreateMarket(c echo.Context) error {
 	m := &market.Market{
 		Name:        r.Name,
 		Description: r.Description,
-		AlphaPPM:    r.AlphaPPM,
-		FeePPM:      r.FeePPM,
+		Currency:    r.Currency,
+		ImgKey:      r.ImgKey,
+		Alpha:       r.Alpha,
+		Fee:         r.Fee,
+		CapPrice:    r.CapPrice,
 		Q0Seeding:   r.Q0_Seeding,
 		OutcomeSort: r.OutcomeSort,
 		Status:      market.StatusDraft,
@@ -200,8 +208,8 @@ func (h *AdminMarketHandler) ResolveMarket(c echo.Context) error {
 }
 
 type updateMarketFeeReq struct {
-	MarketID uuid.UUID `json:"marketId"`
-	FeePPM   int64     `json:"feePPM" validate:"required,min=10000,max=100000"`
+	MarketID uuid.UUID           `json:"marketId"`
+	Fee      *numeric.BigDecimal `json:"fee" validate:"required,dec_min=0.01,dec_max=0.1"` // Between 1% and 10%
 }
 
 func (h *AdminMarketHandler) UpdateMarketFee(c echo.Context) error {
@@ -224,7 +232,7 @@ func (h *AdminMarketHandler) UpdateMarketFee(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "market cancelled or closed")
 	}
 
-	if err := h.am.UpdateMarketFees(ctx, r.MarketID, r.FeePPM); err != nil {
+	if err := h.am.UpdateMarketFees(ctx, r.MarketID, r.Fee); err != nil {
 		return fmt.Errorf("failed to update market fee: %w", err)
 	}
 

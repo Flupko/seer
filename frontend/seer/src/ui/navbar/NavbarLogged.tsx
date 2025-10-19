@@ -1,18 +1,18 @@
 import { useUserQuery } from "@/lib/queries/useUserQuery";
+import { useDrawerStore } from "@/lib/stores/drawer";
+import { Bell, MessageCircleMore, Search } from "lucide-react";
 import Balance from "../Balance";
 import ToolTip from "../ToolTip";
-import { Bell, MessageCircleMore, Search, Settings, Trophy, UserRound, Wallet } from "lucide-react";
-import { useState } from "react";
-import MenuLarge from "../menu_large_vertical/MenuLarge";
-import MenuLargeItem from "../menu_large_vertical/MenuLargeItem";
-import { AnimatePresence } from "motion/react";
 import UserPart from "./UserPart";
 
 export default function NavbarLogged() {
 
 
     const user = useUserQuery().data;
+    const openDrawer = useDrawerStore((state) => state.openDrawer);
     if (!user) return null;
+
+
 
     return (
         <>
@@ -21,6 +21,7 @@ export default function NavbarLogged() {
             </div>
 
             <ul className="flex gap-2.5 justify-self-end">
+
                 <li>
                     <ToolTip Icon={Bell} bgFull />
                 </li>
@@ -29,7 +30,7 @@ export default function NavbarLogged() {
                     <ToolTip Icon={Search} bgFull />
                 </li>
 
-                <li>
+                <li onClick={() => openDrawer("chat")}>
                     <ToolTip Icon={MessageCircleMore} bgFull />
                 </li>
 

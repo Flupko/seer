@@ -2,6 +2,7 @@ package middlewares
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"seer/internal/repos"
 	"seer/internal/utils"
@@ -25,17 +26,17 @@ func NewAuthMiddleware(sessionRepo *repos.SessionRepo, validate *validator.Valid
 func (am *AuthMiddleware) Authenticate(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
 
-		c.Response().Header().Add("Vary", "Cookie")
-
 		sessionCookie, err := c.Cookie("sid")
+
 		if err != nil || sessionCookie.Value == "" {
 			c.Set(string(utils.UserContextKey), repos.AnonymousUser)
 			return next(c)
 		}
 
 		sessionPlain := sessionCookie.Value
-
+		fmt.Println("Session plain:", sessionPlain)
 		if err = am.validate.Var(sessionPlain, "token_plain"); err != nil {
+			fmt.Println("Session plain:", sessionPlain, "error:", err)
 			var validateErrs validator.ValidationErrors
 			switch {
 			case errors.As(err, &validateErrs):
@@ -45,7 +46,10 @@ func (am *AuthMiddleware) Authenticate(next echo.HandlerFunc) echo.HandlerFunc {
 			}
 		}
 
-		ip := c.RealIP()
+		var ip *string
+		if ipRaw := c.RealIP(); utils.ValidateIp(ipRaw) {
+			ip = &ipRaw
+		}
 
 		user, err := am.sessionRepo.GetUserFromPlain(c.Request().Context(), sessionPlain, ip)
 		if err != nil {
@@ -73,9 +77,9 @@ func (am *AuthMiddleware) RequireAuthentication(next echo.HandlerFunc) echo.Hand
 			return echo.NewHTTPError(http.StatusUnauthorized, "authentication required")
 		}
 
-		if user.Status != repos.Activated {
-			return echo.NewHTTPError(http.StatusUnauthorized, "unactivated account")
-		}
+		// if user.Status != repos.Activated {
+		// 	return echo.NewHTTPError(http.StatusUnauthorized, "unactivated account")
+		// }
 
 		return next(c)
 	}

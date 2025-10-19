@@ -1,22 +1,16 @@
-import { X } from "lucide-react";
-import Input from "../Input";
-import ToolTip from "../ToolTip";
-import { useModal } from "../modal/Modal";
-import Tabs from "../Tabs/Tabs";
-import Tab from "../Tabs/Tab";
 import { useState } from "react";
-import Button from "../Button";
-import Register from "./Register";
-import DrawerClose from "../DrawerClose";
+import Tab from "../Tabs/Tab";
+import Tabs from "../Tabs/Tabs";
 import Login from "./Login";
+import Register from "./Register";
 
 
-export default function AuthModal({ data: seletedTab }: { data: 'login' | 'register' }) {
+export default function AuthModal({ selectedTab }: { selectedTab: 'login' | 'register' }) {
 
-    const [activeTab, setActiveTab] = useState<'login' | 'register'>(seletedTab);
+    const [activeTab, setActiveTab] = useState<'login' | 'register'>(selectedTab);
 
     return (
-        <div className="flex flex-col gap-10 px-9 lg:px-9.5 pb-8 md:pt-11 pt-6 w-full">
+        <div className="flex flex-col gap-10 px-7.5 lg:px-9.5 pb-8 md:pt-11 pt-6 w-full">
             <Tabs>
                 <Tab isSelected={activeTab == 'register'} onClick={() => { setActiveTab('register') }}>Sign Up</Tab>
                 <Tab isSelected={activeTab == 'login'} onClick={() => { setActiveTab('login') }}>Login</Tab>

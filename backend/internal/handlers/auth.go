@@ -73,7 +73,7 @@ func NewAuthHandler(ctx context.Context,
 			oauth2: &oauth2.Config{
 				ClientID:     os.Getenv("GOOGLE_OAUTH_CLIENT_ID"),
 				ClientSecret: os.Getenv("GOOGLE_OAUTH_CLIENT_SECRET"),
-				RedirectURL:  fmt.Sprintf("%s/auth/%s/callback", os.Getenv("API_BASE_URL"), repos.GoogleProvider),
+				RedirectURL:  fmt.Sprintf("%s/auth/provider/%s/callback", os.Getenv("API_BASE_URL"), repos.GoogleProvider),
 				Scopes:       []string{"openid", "email", "profile"},
 				Endpoint:     googleProvider.Endpoint(),
 			},
@@ -85,7 +85,7 @@ func NewAuthHandler(ctx context.Context,
 			oauth2: &oauth2.Config{
 				ClientID:     os.Getenv("TWITCH_OAUTH_CLIENT_ID"),
 				ClientSecret: os.Getenv("TWITCH_OAUTH_CLIENT_SECRET"),
-				RedirectURL:  fmt.Sprintf("%s/auth/%s/callback", os.Getenv("API_BASE_URL"), repos.TwitchProvider),
+				RedirectURL:  fmt.Sprintf("%s/auth/provider/%s/callback", os.Getenv("API_BASE_URL"), repos.TwitchProvider),
 				Scopes:       []string{"openid", "user:read:email"},
 				Endpoint:     twitchProvider.Endpoint(),
 			},
@@ -418,8 +418,8 @@ func (h *AuthHandler) LoginUserByEmailOrUsername(c echo.Context) error {
 func (h *AuthHandler) Logout(c echo.Context) error {
 
 	ctx := c.Request().Context()
-	sessionID := utils.ContextGetUser(c).SessionID
-	err := h.sessionRepo.RevokeSession(ctx, sessionID)
+	user := utils.ContextGetUser(c)
+	err := h.sessionRepo.RevokeSession(ctx, user.SessionID, user.ID)
 	if err != nil && !errors.Is(err, repos.ErrRecordNotFound) {
 		fmt.Println("failed to revoke session:", err)
 		return fmt.Errorf("failed to revoke session: %w", err)
@@ -427,6 +427,198 @@ func (h *AuthHandler) Logout(c echo.Context) error {
 
 	utils.ClearCookie(c, "sid")
 	return c.JSON(http.StatusOK, utils.Envelope{"message": "successfully logged out"})
+
+}
+
+type sessionsReq struct {
+	ShowInactive bool `query:"showInactive"`
+}
+
+type sessionRes struct {
+	ID         uuid.UUID `json:"id"`
+	LastUsedAt time.Time `json:"lastUsedAt"`
+	OS         string    `json:"os,omitempty"`
+	Broswer    string    `json:"broswer,omitempty"`
+	Device     string    `json:"device,omitempty"`
+	IP         string    `json:"ip,omitempty"`
+	Country    string    `json:"country,omitempty"`
+	City       string    `json:"city,omitempty"`
+	Active     bool      `json:"active"`
+	Current    bool      `json:"current"`
+}
+
+func (h *AuthHandler) GetSessions(c echo.Context) error {
+
+	r := &sessionsReq{}
+	if err := utils.ParseAndValidateQueryParams(c, r, h.validate); err != nil {
+		return err
+	}
+
+	ctx := c.Request().Context()
+	user := utils.ContextGetUser(c)
+
+	sessions, err := h.sessionRepo.GetForUser(ctx, user.ID, r.ShowInactive)
+	if err != nil {
+		return fmt.Errorf("failed to get active sessions: %w", err)
+	}
+
+	currentSessionID := user.SessionID
+	sessResp := make([]*sessionRes, 0, len(sessions))
+	for _, s := range sessions {
+		rs := &sessionRes{
+			ID:         s.ID,
+			LastUsedAt: s.LastUsedAt,
+		}
+		if s.ClientOS.Valid {
+			rs.OS = s.ClientOS.String
+		}
+		if s.ClientDevice.Valid {
+			rs.Device = s.ClientDevice.String
+		}
+		if s.ClientBrowser.Valid {
+			rs.Broswer = s.ClientBrowser.String
+		}
+		if s.IPLast.Valid {
+			rs.IP = s.IPLast.String
+		}
+
+		if s.GeoCountry.Valid {
+			rs.Country = s.GeoCountry.String
+		}
+		if s.GeoCity.Valid {
+			rs.City = s.GeoCity.String
+		}
+		if s.ID == currentSessionID {
+			rs.Current = true
+		}
+
+		rs.Active = !s.RevokedAt.Valid && s.ExpiresAt.After(time.Now())
+
+		sessResp = append(sessResp, rs)
+
+	}
+
+	return c.JSON(http.StatusOK, sessResp)
+
+}
+
+type revokeSessionReq struct {
+	SessionID uuid.UUID `param:"id" validate:"required"`
+}
+
+func (h *AuthHandler) RevokeSession(c echo.Context) error {
+
+	r := &revokeSessionReq{}
+	if err := utils.ParseAndValidadePathParams(c, r, h.validate); err != nil {
+		return err
+	}
+
+	ctx := c.Request().Context()
+	user := utils.ContextGetUser(c)
+
+	err := h.sessionRepo.RevokeSession(ctx, r.SessionID, user.ID)
+	if err != nil {
+		switch {
+		case errors.Is(err, repos.ErrRecordNotFound):
+			return c.JSON(http.StatusNotFound, utils.ErrorResponse{Message: "Session not found"})
+		default:
+			return fmt.Errorf("failed to revoke session: %w", err)
+		}
+	}
+
+	return c.JSON(http.StatusOK, utils.Envelope{"message": "session succesfully revoked"})
+
+}
+
+type passwordChangeReq struct {
+	CurrentPassword string `json:"currentPassword" validate:"required"`
+	NewPassword     string `json:"newPassword" validate:"required,min=8,max=49"`
+}
+
+func (h *AuthHandler) ChangePassword(c echo.Context) error {
+
+	r := &passwordChangeReq{}
+	if err := utils.ParseAndValidateJSON(c.Request().Body, r, h.validate); err != nil {
+		return err
+	}
+
+	userID := utils.ContextGetUser(c).ID
+	ctx := c.Request().Context()
+
+	user, err := h.userRepo.GetByID(ctx, userID)
+
+	if err != nil {
+		return fmt.Errorf("failed to get user: %w", err)
+	}
+
+	match, err := repos.MatchPassword(user.PasswordHash, r.CurrentPassword)
+	if err != nil {
+		return err
+	}
+
+	if !match {
+		return c.JSON(http.StatusUnauthorized, utils.ErrorResponse{
+			Errors: []utils.ValidationError{{Field: "currentPassword", Message: "Password is incorrect"}},
+		})
+	}
+
+	newPasswordHash, err := repos.GetHashedPassword(r.NewPassword)
+	if err != nil {
+		return fmt.Errorf("failed to hash password:%w", err)
+	}
+
+	user.PasswordHash = newPasswordHash
+
+	if err := h.userRepo.ChangePassword(ctx, user); err != nil {
+		switch {
+		case errors.Is(err, repos.ErrEditConflict):
+			return echo.NewHTTPError(http.StatusConflict, "User updated while attempting to change password.")
+		default:
+			return fmt.Errorf("failed to change password: %w", err)
+		}
+	}
+
+	return c.JSON(http.StatusAccepted, utils.Envelope{"message": "password successfully updated"})
+
+}
+
+type passwordSetReq struct {
+	Password string `json:"password" validate:"required,min=8,max=49"`
+}
+
+func (h *AuthHandler) SetPassword(c echo.Context) error {
+
+	r := &passwordSetReq{}
+	if err := utils.ParseAndValidateJSON(c.Request().Body, r, h.validate); err != nil {
+		return err
+	}
+
+	userID := utils.ContextGetUser(c).ID
+	ctx := c.Request().Context()
+
+	user, err := h.userRepo.GetByID(ctx, userID)
+
+	if err != nil {
+		return fmt.Errorf("failed to get user: %w", err)
+	}
+
+	passwordHash, err := repos.GetHashedPassword(r.Password)
+	if err != nil {
+		return fmt.Errorf("failed to hash password:%w", err)
+	}
+
+	user.PasswordHash = passwordHash
+
+	if err := h.userRepo.ChangePassword(ctx, user); err != nil {
+		switch {
+		case errors.Is(err, repos.ErrEditConflict):
+			return echo.NewHTTPError(http.StatusConflict, "User updated while attempting to set password.")
+		default:
+			return fmt.Errorf("failed to set password: %w", err)
+		}
+	}
+
+	return c.JSON(http.StatusAccepted, utils.Envelope{"message": "password successfully set"})
 
 }
 
@@ -494,13 +686,13 @@ func (h *AuthHandler) createSession(c echo.Context, userID uuid.UUID) error {
 		return fmt.Errorf("failed to create session: %w", err)
 	}
 
-	go func() {
-		bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := h.sessionRepo.LimitSessionsUser(bgCtx, userID, 5); err != nil {
-			h.logger.Error("failed to limit sessions for user", "error", err)
-		}
-	}()
+	// go func() {
+	// 	bgCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// 	defer cancel()
+	// 	if err := h.sessionRepo.LimitSessionsUser(bgCtx, userID, 5); err != nil {
+	// 		h.logger.Error("failed to limit sessions for user", "error", err)
+	// 	}
+	// }()
 
 	// Set session cookie
 	utils.SetSecureCookie(c, "sid", sessionPlain, 14*24*time.Hour)

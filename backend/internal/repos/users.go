@@ -57,19 +57,25 @@ type User struct {
 	Version int64
 }
 
+type UserPreferences struct {
+	Hidden                 bool
+	ReceiveMarketingEmails bool
+}
+
 type UserView struct {
 	User
 	Balance int64
 }
 
 type MinimalUser struct {
-	SessionID  uuid.UUID
-	ID         uuid.UUID
-	Username   string
-	Role       Role
-	Status     UserStatus
-	MutedUntil sql.NullTime
-	Version    int64
+	SessionID       uuid.UUID
+	ID              uuid.UUID
+	Username        string
+	Role            Role
+	ProfileImageKey sql.NullString
+	Status          UserStatus
+	MutedUntil      sql.NullTime
+	Version         int64
 }
 
 var AnonymousUser = &MinimalUser{}
@@ -230,9 +236,46 @@ func (r *UserRepo) GetByEmailOrUsername(ctx context.Context, login string) (*Use
 	return &user, nil
 }
 
-func (r *UserRepo) GetByID(ctx context.Context, userID uuid.UUID) (*UserView, error) {
+func (r *UserRepo) GetByID(ctx context.Context, userID uuid.UUID) (*User, error) {
 
-	query := `SELECT u.id, u.email, u.username, u.password_hash, u.role, u.profile_image_key, 
+	query := `SELECT u.id, u.email, u.username, 
+	u.password_hash, u.provider_id,
+	u.role, u.profile_image_key, 
+	u.created_at, 
+	u.status, u.version
+	FROM users u
+	WHERE u.id = $1`
+
+	row := r.db.QueryRow(ctx, query, userID)
+	var user User
+	err := row.Scan(
+		&user.ID,
+		&user.Email,
+		&user.Username,
+		&user.PasswordHash,
+		&user.ProviderID,
+		&user.Role,
+		&user.ProfileImageKey,
+		&user.CreatedAt,
+		&user.Status,
+		&user.Version,
+	)
+
+	if err != nil {
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			return nil, ErrRecordNotFound
+		default:
+			return nil, err
+		}
+	}
+
+	return &user, nil
+}
+
+func (r *UserRepo) GetViewByID(ctx context.Context, userID uuid.UUID) (*UserView, error) {
+
+	query := `SELECT u.id, u.email, u.username, u.password_hash, u.provider_id, u.role, u.profile_image_key, 
 	u.created_at, 
 	u.status, u.version,
 	la.balance
@@ -247,6 +290,7 @@ func (r *UserRepo) GetByID(ctx context.Context, userID uuid.UUID) (*UserView, er
 		&user.Email,
 		&user.Username,
 		&user.PasswordHash,
+		&user.ProviderID,
 		&user.Role,
 		&user.ProfileImageKey,
 		&user.CreatedAt,
@@ -268,26 +312,43 @@ func (r *UserRepo) GetByID(ctx context.Context, userID uuid.UUID) (*UserView, er
 
 }
 
-func (r *UserRepo) Update(ctx context.Context, user *User) error {
-	query := `
-		UPDATE users
-		SET email = $1, username = $2, password_hash = $3, profile_image_key = $4, status = $5, version = version + 1
-		WHERE id = $6 AND version = $7
-		RETURNING version
-	`
-	err := r.db.QueryRow(ctx, query, user.Email, user.Username, user.PasswordHash, user.ProfileImageKey, user.Status, user.ID, user.Version).Scan(&user.Version)
+func (r *UserRepo) ChangePassword(ctx context.Context, user *User) error {
+
+	tx, err := r.db.Begin(ctx)
+
 	if err != nil {
-		var pgErr *pgconn.PgError
+		return fmt.Errorf("failed to begin tx")
+	}
+
+	defer tx.Rollback(ctx)
+
+	query := `
+        UPDATE users
+        SET password_hash = $1, version = version + 1
+        WHERE id = $2 AND version = $3
+        RETURNING version
+    `
+
+	err = tx.QueryRow(ctx, query, user.PasswordHash, user.ID, user.Version).Scan(&user.Version)
+	if err != nil {
 		switch {
-		case errors.As(err, &pgErr) && pgErr.Code == pgerrcode.UniqueViolation:
-			return ErrUniqueViolation
 		case errors.Is(err, pgx.ErrNoRows):
 			return ErrEditConflict
 		default:
 			return err
 		}
 	}
-	return nil
+
+	query = `UPDATE sessions 
+    SET revoked_at = NOW() 
+    WHERE user_id = $1 AND revoked_at IS NULL AND expires_at > NOW()`
+
+	_, err = tx.Exec(ctx, query, user.ID)
+	if err != nil {
+		return fmt.Errorf("failed to revoke sessions: %w", err)
+	}
+
+	return tx.Commit(ctx)
 }
 
 func (r *UserRepo) CompleteProfile(ctx context.Context, userID uuid.UUID, username string, version int64) error {
@@ -344,4 +405,46 @@ func (r *UserRepo) UpdateProfileImageKey(ctx context.Context, userID uuid.UUID, 
 
 	return "", nil
 
+}
+
+func (r *UserRepo) GetPreferences(ctx context.Context, userID uuid.UUID) (*UserPreferences, error) {
+
+	query := `
+		SELECT hidden, receive_marketing_emails
+		FROM users
+		WHERE id = $1
+	`
+
+	var prefs UserPreferences
+	err := r.db.QueryRow(ctx, query, userID).Scan(&prefs.Hidden, &prefs.ReceiveMarketingEmails)
+	if err != nil {
+		switch {
+		case errors.Is(err, pgx.ErrNoRows):
+			return nil, ErrRecordNotFound
+		default:
+			return nil, err
+		}
+	}
+
+	return &prefs, nil
+}
+
+func (r *UserRepo) UpdatePreferences(ctx context.Context, userID uuid.UUID, prefs *UserPreferences) error {
+
+	query := `
+		UPDATE users
+		SET hidden = $1, receive_marketing_emails = $2
+		WHERE id = $3
+	`
+
+	cmd, err := r.db.Exec(ctx, query, prefs.Hidden, prefs.ReceiveMarketingEmails, userID)
+	if err != nil {
+		return fmt.Errorf("failed to update user preferences: %w", err)
+	}
+
+	if cmd.RowsAffected() == 0 {
+		return ErrRecordNotFound
+	}
+
+	return nil
 }

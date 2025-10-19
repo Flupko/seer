@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"seer/internal/numeric"
 	"seer/internal/ps"
 	"seer/internal/utils"
 	"strings"
@@ -101,37 +102,38 @@ func (sm *StatManager) addMarketPriceHistory(payload string) error {
 
 	defer tx.Rollback(addCtx)
 
-	var alphaPPM, feePPM int64
-	var qVec, outcomeIds []int64
+	var alpha, fee *numeric.BigDecimal
+	var q []*numeric.BigDecimal
+	var outcomeIds []int64
 
 	query := `
-	SELECT m.alpha_ppm, m.fee_ppm, 
+	SELECT m.alpha, m.fee, 
 	array_agg(o.quantity ORDER BY o.id) AS q_vec,
 	array_agg(o.id ORDER BY o.id) AS outcome_ids
 	FROM markets m
 	JOIN outcomes o ON o.market_id = m.id
 	WHERE m.id = $1
-	GROUP BY m.id, m.alpha_ppm, m.fee_ppm`
+	GROUP BY m.id, m.alpha, m.fee`
 
-	if err := tx.QueryRow(addCtx, query, u.MarketID).Scan(&alphaPPM, &feePPM, &qVec, &outcomeIds); err != nil {
+	if err := tx.QueryRow(addCtx, query, u.MarketID).Scan(&alpha, &fee, &q, &outcomeIds); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrMarketNotFound
 		}
 		return fmt.Errorf("failed to query market's current state: %w", err)
 	}
 
-	if len(qVec) != len(outcomeIds) || len(qVec) == 0 {
+	if len(q) != len(outcomeIds) || len(q) == 0 {
 		return errors.New("inconsistent outcomes for market")
 	}
 
-	pricesPPM, _, err := PricesPPM(qVec, alphaPPM, feePPM)
+	prices, err := PricesBD(q, alpha, fee)
 	if err != nil {
 		return fmt.Errorf("failed to compute prices for market %s: %w", u.MarketID, err)
 	}
 
-	query = `INSERT INTO outcome_price_history(outcome_id, price_ppm) VALUES ($1, $2)`
-	for i := range len(pricesPPM) {
-		if _, err := tx.Exec(addCtx, query, outcomeIds[i], pricesPPM[i]); err != nil {
+	query = `INSERT INTO outcome_price_history(outcome_id, price) VALUES ($1, $2)`
+	for i := range len(prices) {
+		if _, err := tx.Exec(addCtx, query, outcomeIds[i], prices[i]); err != nil {
 			return fmt.Errorf("failed to insert outcome price history: %w", err)
 		}
 	}

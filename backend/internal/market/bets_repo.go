@@ -25,8 +25,10 @@ func (bm *BetManager) SearchBets(ctx context.Context, bsq *BetSearchQuery) ([]Be
 
 	query := fmt.Sprintf(`WITH bets_with_status AS (SELECT
             b.id AS id, 
+            b.ledger_account_id AS ledger_account_id,
             u.id AS user_id, u.username AS username, u.hidden AS hidden,
-            b.payout_cents AS payout_cents, b.total_price_paid_cents AS total_price_paid_cents, b.fee_paid_cents AS fee_paid_cents, b.fee_ppm AS fee_ppm, b.price_ppm AS price_ppm,
+            la.currency as currency,
+            b.payout AS payout, b.total_price_paid AS total_price_paid, b.fee_applied AS fee_applied, b.fee_paid AS fee_paid, b.avg_price AS avg_price,
             b.placed_at AS placed_at,
             m.id AS market_id, m.name AS market_name,
             o.id AS outcome_id, o.name AS outcome_name, 
@@ -47,8 +49,10 @@ func (bm *BetManager) SearchBets(ctx context.Context, bsq *BetSearchQuery) ([]Be
     )
     SELECT count(*) OVER() AS total_count, 
         id, 
+        ledger_account_id,
         user_id, username, hidden,
-        payout_cents, total_price_paid_cents, fee_paid_cents, fee_ppm, price_ppm,
+        currency,
+        payout, total_price_paid, fee_applied, fee_paid, avg_price,
         placed_at,
         market_id, market_name,
         outcome_id, outcome_name, 
@@ -56,8 +60,8 @@ func (bm *BetManager) SearchBets(ctx context.Context, bsq *BetSearchQuery) ([]Be
     FROM bets_with_status
     WHERE ($1::UUID IS NULL OR user_id = $1)
     AND ($2::UUID IS NULL OR market_id = $2)
-    AND ($3::bigint IS NULL OR total_price_paid_cents >= $3)
-    AND ($4::bigint IS NULL OR total_price_paid_cents <= $4)
+    AND ($3::bigint IS NULL OR total_price_paid >= $3)
+    AND ($4::bigint IS NULL OR total_price_paid <= $4)
     AND ($5::TEXT IS NULL OR 
         CASE 
             WHEN $5 = 'active' THEN bet_status = 'active'
@@ -72,7 +76,7 @@ func (bm *BetManager) SearchBets(ctx context.Context, bsq *BetSearchQuery) ([]Be
     LIMIT $6 OFFSET $7
     `, bsq.GetOrderBy())
 
-	rows, err := bm.db.Query(ctx, query, bsq.UserID, bsq.MarketID, bsq.MinPriceCents, bsq.MaxPriceCents, bsq.Status, bsq.Limit(), bsq.Offset())
+	rows, err := bm.db.Query(ctx, query, bsq.UserID, bsq.MarketID, bsq.MinPrice, bsq.MaxPrice, bsq.Status, bsq.Limit(), bsq.Offset())
 
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to query rows bets: %w", err)
@@ -89,8 +93,10 @@ func (bm *BetManager) SearchBets(ctx context.Context, bsq *BetSearchQuery) ([]Be
 
 		err := rows.Scan(&totalCount,
 			&b.ID,
+			&b.LedgerAccountID,
 			&b.User.ID, &b.User.Username, &b.User.Hidden,
-			&b.PayoutCents, &b.TotalPricePaidCents, &b.FeePaidCents, &b.FeePPM, &b.PricePPM,
+			&b.Currency,
+			&b.Payout, &b.TotalPricePaid, &b.FeeApplied, &b.FeePaid, &b.AvgPrice,
 			&b.PlacedAt,
 			&b.MarketID, &b.MarketName,
 			&b.OutcomeID, &b.OutcomeName,
@@ -117,7 +123,7 @@ func (bm *BetManager) GetBetView(ctx context.Context, betID uuid.UUID) (*BetView
 
 	query := `SELECT b.id, 
     u.id, u.username, u.hidden, 
-    b.payout_cents, b.total_price_paid_cents, b.fee_paid_cents, b.fee_ppm, b.price_ppm,
+    b.payout, b.total_price_paid, b.fee_applied, b.fee_paid, b.avg_price,
     b.placed_at,
     m.id AS market_id, m.name AS market_name,
     o.id AS outcome_id, o.name AS outcome_name, 
@@ -140,7 +146,7 @@ func (bm *BetManager) GetBetView(ctx context.Context, betID uuid.UUID) (*BetView
 	var b BetView
 	err := bm.db.QueryRow(ctx, query, betID).Scan(&b.ID,
 		&b.User.ID, &b.User.Username, &b.User.Hidden,
-		&b.PayoutCents, &b.TotalPricePaidCents, &b.FeePaidCents, &b.FeePPM, &b.PricePPM,
+		&b.Payout, &b.TotalPricePaid, &b.FeeApplied, &b.FeePaid, &b.AvgPrice,
 		&b.PlacedAt,
 		&b.MarketID, &b.MarketName,
 		&b.OutcomeID, &b.OutcomeName,

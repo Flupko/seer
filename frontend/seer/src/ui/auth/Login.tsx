@@ -1,20 +1,18 @@
 "use client"
 
 import Button from "@/ui/Button";
-import Input from "@/ui/Input";
+import { SubmitHandler, useForm } from "react-hook-form";
+import Password from "../form/Password";
 import Providers from "./Providers";
-import Password from "./Password";
-import Link from "next/link";
-import { useForm, SubmitHandler } from "react-hook-form"
 
-import { LoginFormValues, LoginSchema } from "@/lib/definitions";
-import { zodResolver } from "@hookform/resolvers/zod";
-import FormField from "./FormField";
-import { useRouter } from "next/navigation";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useModal } from "@/ui/modal/Modal";
 import * as api from "@/lib/api";
+import { LoginFormValues, LoginSchema } from "@/lib/definitions";
+import { useModalStore } from "@/lib/stores/modal";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "motion/react";
+import { useRouter } from "next/navigation";
+import FormField from "../form/FormField";
 
 
 export default function Login() {
@@ -32,13 +30,12 @@ export default function Login() {
     });
 
     const queryClient = useQueryClient();
-    const { closeModal } = useModal();
+    const closeModal = useModalStore((state) => state.closeModal);
 
 
     const mutation = useMutation({
         mutationFn: api.login,
         onSuccess: () => {
-            console.log("Login successful");
             queryClient.invalidateQueries({ queryKey: ['user'] });
             router.push("/");
             closeModal();
@@ -86,13 +83,13 @@ export default function Login() {
                         placeholder="Enter Password"
                     />
 
-                    
+
                 </div>
 
                 {errors.root &&
-                        <motion.div className="text-sm font-semibold text-red-500 block text-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, ease: "easeIn" }}>
-                            {errors.root.message}
-                        </motion.div>}
+                    <motion.div className="text-sm font-semibold text-red-500 block text-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, ease: "easeIn" }}>
+                        {errors.root.message}
+                    </motion.div>}
 
 
                 <Button bg="bg-neon-blue" width="full" height="large" type="submit" isLoading={mutation.isPending}>

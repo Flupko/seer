@@ -1,17 +1,23 @@
 package meta
 
 type Metadata struct {
-	CurrentPage  int64 `json:"currenPage,omitempty"`
-	PageSize     int64 `json:"pageSize,omitempty"`
-	FirstPage    int64 `json:"firstPage,omitempty"`
-	LastPage     int64 `json:"lastPage,omitempty"`
-	TotalRecords int64 `json:"totalRecords,omitempty"`
+	CurrentPage  int64 `json:"currentPage"`
+	PageSize     int64 `json:"pageSize"`
+	FirstPage    int64 `json:"firstPage"`
+	LastPage     int64 `json:"lastPage"`
+	TotalRecords int64 `json:"totalRecords"`
 }
 
 func CalculateMetadata(totalRecords, page, pageSize int64) *Metadata {
 	if totalRecords == 0 {
-		// Note that we return an empty Metadata struct if there are no records.
-		return &Metadata{}
+		return &Metadata{
+			CurrentPage:  1,
+			PageSize:     pageSize,
+			FirstPage:    1,
+			LastPage:     1,
+			TotalRecords: 0,
+		}
+
 	}
 	return &Metadata{
 		CurrentPage:  page,

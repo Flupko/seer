@@ -3,6 +3,7 @@ package utils
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 
@@ -63,8 +64,10 @@ func validateStruct(v any, validate *validator.Validate) error {
 	if err := validate.Struct(v); err != nil {
 		var validateErrs validator.ValidationErrors
 		if errors.As(err, &validateErrs) {
+
 			invalidFields := []string{}
 			for _, e := range validateErrs {
+				fmt.Println(e.Error())
 				invalidFields = append(invalidFields, e.Field())
 			}
 			return echo.NewHTTPError(http.StatusBadRequest, Envelope{
