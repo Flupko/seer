@@ -36,6 +36,7 @@ type Market struct {
 	Currency    finance.Currency
 	Status      MarketStatus
 	ImgKey      string
+	Slug        string
 
 	HouseLedgerAccountID uuid.UUID
 	Q0Seeding            *numeric.BigDecimal
@@ -246,6 +247,7 @@ type BetState struct {
 	ID          uuid.UUID `json:"id"`
 	MarketID    uuid.UUID `json:"marketID"`
 	MarketName  string    `json:"marketName"`
+	MarketSlug  string    `json:"marketSlug"`
 	OutcomeID   int64     `json:"outcomeId"`
 	OutcomeName string    `json:"outcomeName"`
 	User        *struct {

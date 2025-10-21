@@ -66,8 +66,11 @@ func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skip
 
 		cached, err := qm.rdb.Get(ctx, cacheKey).Result()
 
+		fmt.Println("err checking market search cache:", err)
+
 		// Cache hit. If error either cache miss or redis issue
 		if err == nil {
+			fmt.Println("Market search cache hit:", cacheKey)
 			var searchRes MarketSearchResult
 			if err2 := utils.ReadJson(strings.NewReader(cached), &searchRes); nil == err2 {
 				return searchRes.Markets, searchRes.Metadata, nil
@@ -83,7 +86,7 @@ func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skip
 	}
 
 	query := fmt.Sprintf(`SELECT count(*) OVER() AS total_count,
-	m.id, m.name, m.description, m.img_key,
+	m.id, m.name, m.description, m.img_key, m.slug,
 	m.status,
 	m.house_ledger_account_id, m.q0_seeding, m.alpha, m.fee, m.cap_price,
 	m.volume,
@@ -112,7 +115,7 @@ func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skip
 
 		err = rows.Scan(
 			&totalCount,
-			&m.ID, &m.Name, &m.Description, &m.ImgKey,
+			&m.ID, &m.Name, &m.Description, &m.ImgKey, &m.Slug,
 			&m.Status,
 			&m.HouseLedgerAccountID, &m.Q0Seeding, &m.Alpha, &m.Fee, &m.CapPrice,
 			&m.Volume,
@@ -177,6 +180,7 @@ func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skip
 		cacheCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		if data, err := json.Marshal(MarketSearchResult{Markets: markets, Metadata: metadata}); nil == err {
+			fmt.Println("Setting market search cache:", cacheKey)
 			// Set cache, ignore error
 			qm.rdb.SetEx(cacheCtx, cacheKey, data, 5*time.Minute)
 		}
@@ -256,7 +260,7 @@ func (qm *QueryManager) getCategoriesForMarkets(ctx context.Context, marketIDs [
 }
 
 func (qm *QueryManager) GetMarketByID(ctx context.Context, marketID uuid.UUID) (*MarketView, error) {
-	query := `SELECT m.id, m.name, m.description, m.img_key,
+	query := `SELECT m.id, m.name, m.description, m.img_key, slug,
 	m.status,
 	m.house_ledger_account_id, m.q0_seeding, m.alpha, m.fee, m.cap_price,
 	m.volume,
@@ -268,7 +272,7 @@ func (qm *QueryManager) GetMarketByID(ctx context.Context, marketID uuid.UUID) (
 
 	m := &MarketView{}
 	err := qm.db.QueryRow(ctx, query, marketID).Scan(
-		m.ID, &m.Name, &m.Description, &m.ImgKey,
+		m.ID, &m.Name, &m.Description, &m.ImgKey, &m.Slug,
 		&m.Status,
 		&m.HouseLedgerAccountID, &m.Q0Seeding, &m.Alpha, &m.Fee, &m.CapPrice,
 		&m.Volume,
@@ -306,6 +310,12 @@ func (qm *QueryManager) buildCacheKey(sq *SearchQuery) string {
 	if sq.Query != nil {
 		queryStr = *sq.Query
 	}
-	return fmt.Sprintf("market_search:%s:%v:%s:%s:%d:%d",
-		queryStr, sq.CategorySlug, sq.Status, sq.Sort, sq.Page, sq.PageSize)
+
+	categoryStr := ""
+	if sq.CategorySlug != nil {
+		categoryStr = *sq.CategorySlug
+	}
+
+	return fmt.Sprintf("market_search:%s:%s:%s:%s:%d:%d",
+		queryStr, categoryStr, sq.Status, sq.Sort, sq.Page, sq.PageSize)
 }

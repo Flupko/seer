@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -234,6 +235,7 @@ type marketSearcUserRes struct {
 	Name        string                   `json:"name"`
 	Description string                   `json:"description"`
 	ImgKey      string                   `json:"imgKey"`
+	Slug        string                   `json:"slug"`
 	CloseTime   *time.Time               `json:"closeTime,omitempty"`
 	Alpha       *numeric.BigDecimal      `json:"alpha"`
 	Fee         *numeric.BigDecimal      `json:"fee"`
@@ -241,6 +243,68 @@ type marketSearcUserRes struct {
 	OutcomeSort market.MarketOutcomeSort `json:"outcomeSort"`
 	Categories  []*categoryRes           `json:"categories"`
 	Outcomes    []*outcomeUserRes        `json:"outcomes"`
+}
+
+func (h *MarketHandler) marketStateToUserRes(ctx context.Context, m *market.MarketView) (*marketSearcUserRes, error) {
+	mr := &marketSearcUserRes{
+		ID:          m.ID,
+		Name:        m.Name,
+		Description: m.Description,
+		ImgKey:      m.ImgKey,
+		Slug:        m.Slug,
+		OutcomeSort: m.OutcomeSort,
+		Alpha:       m.Alpha,
+		Fee:         m.Fee,
+		CapPrice:    m.CapPrice,
+		Categories:  make([]*categoryRes, 0, len(m.Categories)),
+		Outcomes:    make([]*outcomeUserRes, 0, len(m.Outcomes)),
+	}
+
+	if m.CloseTime.Valid {
+		mr.CloseTime = &m.CloseTime.Time
+	}
+
+	for _, c := range m.Categories {
+		cr := &categoryRes{
+			ID:      c.ID,
+			Slug:    c.Slug,
+			Label:   c.Label,
+			IconUrl: c.IconUrl,
+		}
+		mr.Categories = append(mr.Categories, cr)
+	}
+
+	for _, o := range m.Outcomes {
+		or := &outcomeUserRes{
+			ID:       o.ID,
+			Name:     o.Name,
+			Position: o.Position,
+		}
+		mr.Outcomes = append(mr.Outcomes, or)
+	}
+
+	// Retrieve market state
+	mState, err := h.msm.GetMarketState(ctx, m.ID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get market state: %w", err)
+	}
+
+	prices, err := market.PricesBD(mState.QVec, m.Alpha, m.Fee)
+	if err != nil {
+		return nil, fmt.Errorf("failed to compute prices: %w", err)
+	}
+	fmt.Println("market prices:", prices)
+
+	// Attach quantities to outcomes
+	for _, o := range mr.Outcomes {
+		idx := slices.Index(mState.OutcomeIDs, o.ID)
+		if idx == -1 {
+			return nil, fmt.Errorf("outcome id %d not found in market state for market %s", o.ID, m.ID)
+		}
+		o.Quantity = mState.QVec[idx]
+	}
+
+	return mr, nil
 }
 
 func (h *MarketHandler) GetMarketsUser(c echo.Context) error {
@@ -277,61 +341,10 @@ func (h *MarketHandler) GetMarketsUser(c echo.Context) error {
 
 	markets := make([]*marketSearcUserRes, 0, len(marketsView))
 	for _, m := range marketsView {
-		mr := &marketSearcUserRes{
-			ID:          m.ID,
-			Name:        m.Name,
-			Description: m.Description,
-			ImgKey:      m.ImgKey,
-			OutcomeSort: m.OutcomeSort,
-			Alpha:       m.Alpha,
-			Fee:         m.Fee,
-			CapPrice:    m.CapPrice,
-			Categories:  make([]*categoryRes, 0, len(m.Categories)),
-			Outcomes:    make([]*outcomeUserRes, 0, len(m.Outcomes)),
-		}
 
-		if m.CloseTime.Valid {
-			mr.CloseTime = &m.CloseTime.Time
-		}
-
-		for _, c := range m.Categories {
-			cr := &categoryRes{
-				ID:      c.ID,
-				Slug:    c.Slug,
-				Label:   c.Label,
-				IconUrl: c.IconUrl,
-			}
-			mr.Categories = append(mr.Categories, cr)
-		}
-
-		for _, o := range m.Outcomes {
-			or := &outcomeUserRes{
-				ID:       o.ID,
-				Name:     o.Name,
-				Position: o.Position,
-			}
-			mr.Outcomes = append(mr.Outcomes, or)
-		}
-
-		// Retrieve market state
-		mState, err := h.msm.GetMarketState(ctx, m.ID)
+		mr, err := h.marketStateToUserRes(ctx, m)
 		if err != nil {
-			return fmt.Errorf("failed to get market state: %w", err)
-		}
-
-		prices, err := market.PricesBD(mState.QVec, m.Alpha, m.Fee)
-		if err != nil {
-			return fmt.Errorf("failed to compute prices: %w", err)
-		}
-		fmt.Println("market prices:", prices)
-
-		// Attach quantities to outcomes
-		for _, o := range mr.Outcomes {
-			idx := slices.Index(mState.OutcomeIDs, o.ID)
-			if idx == -1 {
-				return fmt.Errorf("outcome id %d not found in market state for market %s", o.ID, m.ID)
-			}
-			o.Quantity = mState.QVec[idx]
+			return err
 		}
 
 		markets = append(markets, mr)
@@ -357,55 +370,9 @@ func (h *MarketHandler) GetMarketUser(c echo.Context) error {
 		return mapErrorRepo(err)
 	}
 
-	mr := &marketSearcUserRes{
-		ID:          m.ID,
-		Name:        m.Name,
-		Description: m.Description,
-		ImgKey:      m.ImgKey,
-		OutcomeSort: m.OutcomeSort,
-		Alpha:       m.Alpha,
-		Fee:         m.Fee,
-		CapPrice:    m.CapPrice,
-		Categories:  make([]*categoryRes, 0, len(m.Categories)),
-		Outcomes:    make([]*outcomeUserRes, 0, len(m.Outcomes)),
-	}
-
-	if m.CloseTime.Valid {
-		mr.CloseTime = &m.CloseTime.Time
-	}
-
-	for _, c := range m.Categories {
-		cr := &categoryRes{
-			ID:      c.ID,
-			Slug:    c.Slug,
-			Label:   c.Label,
-			IconUrl: c.IconUrl,
-		}
-		mr.Categories = append(mr.Categories, cr)
-	}
-
-	for _, o := range m.Outcomes {
-		or := &outcomeUserRes{
-			ID:       o.ID,
-			Name:     o.Name,
-			Position: o.Position,
-		}
-		mr.Outcomes = append(mr.Outcomes, or)
-	}
-
-	// Retrieve market state
-	mState, err := h.msm.GetMarketState(ctx, m.ID)
+	mr, err := h.marketStateToUserRes(ctx, m)
 	if err != nil {
-		return fmt.Errorf("failed to get market state: %w", err)
-	}
-
-	// Attach quantities to outcomes
-	for _, o := range mr.Outcomes {
-		idx := slices.Index(mState.OutcomeIDs, o.ID)
-		if idx == -1 {
-			return fmt.Errorf("outcome id %d not found in market state for market %s", o.ID, m.ID)
-		}
-		o.Quantity = mState.QVec[idx]
+		return err
 	}
 
 	return c.JSON(http.StatusOK, mr)

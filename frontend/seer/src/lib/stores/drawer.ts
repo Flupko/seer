@@ -1,7 +1,7 @@
 // stores/modalStore.ts
 import { create } from 'zustand';
 
-export type DrawerType = "chat" | "bet" | null
+export type DrawerType = "chat" | "bet" | "betSuccess" | null
 
 interface DrawerStore {
     currentDrawer: DrawerType;

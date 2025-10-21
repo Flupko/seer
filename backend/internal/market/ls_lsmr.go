@@ -10,7 +10,7 @@ import (
 
 var ctx = decimal.Context{
 	Precision:     30,
-	RoundingMode:  decimal.ToNegativeInf,
+	RoundingMode:  decimal.ToZero,
 	OperatingMode: decimal.GDA,
 	Traps:         ^(decimal.Inexact | decimal.Subnormal),
 }
@@ -490,8 +490,6 @@ func PricesDec(q []decimal.Big, alpha decimal.Big) ([]decimal.Big, error) {
 		return nil, fmt.Errorf("failed to negate sum[si log(si)]: %w", err)
 	}
 
-	fmt.Println("H(s):", sumSi.String())
-
 	// Multiply alpha
 	// alpha * H(s)
 	var com decimal.Big
@@ -679,8 +677,6 @@ func PossibleGainForSell(qBD []*numeric.BigDecimal, idxBought int, alphaBD, nbSh
 		return false, nil, errors.New("nbSharesBought must be positive")
 	}
 
-	fmt.Println("NB SHARES BOUGHT:", nbSharesBoughtBD.String())
-
 	alpha := alphaBD.Big
 	nbSharesBought := nbSharesBoughtBD.Big
 	cap := capBD.Big
@@ -731,16 +727,11 @@ func PossibleGainForSell(qBD []*numeric.BigDecimal, idxBought int, alphaBD, nbSh
 		return false, nil, fmt.Errorf("failed to compute hedgeCost: %w", err)
 	}
 
-	fmt.Println("BASE COST:", baseCost.String())
-	fmt.Println("HEDGE COST:", hedgeCost.String())
-
 	var deltaHedge decimal.Big
 	ctx.Sub(&deltaHedge, &hedgeCost, &baseCost)
 	if err := ctx.Err(); err != nil {
 		return false, nil, fmt.Errorf("failed to compute deltaHedge: %w", err)
 	}
-
-	fmt.Println("DELTA HEDGE:", deltaHedge.String())
 
 	var gain decimal.Big
 	ctx.Sub(&gain, &nbSharesBought, &deltaHedge)

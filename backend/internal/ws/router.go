@@ -3,7 +3,6 @@ package ws
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 
 	"github.com/go-playground/validator/v10"
 )
@@ -40,25 +39,21 @@ func (r *SocketRouter) routeMessage(c *Client, rawMessage []byte) {
 		var m Message
 		if err := dec.Decode(&m); err != nil {
 			c.Disconnect()
-			fmt.Println("failed to decode ws message:", err)
 			return
 		}
 
 		err := r.validate.Struct(m)
 		if err != nil {
 			c.Disconnect()
-			fmt.Println("ws message validation error:", err)
 			return
 		}
 
 		handler, ok := r.routes[m.Type]
 		if !ok {
 			c.Disconnect()
-			fmt.Println("no handler for ws message type:", m.Type)
 			return
 		}
 
-		fmt.Println("Routing ws message of type:", m.Type)
 		handler(c, string(m.Payload))
 
 	}

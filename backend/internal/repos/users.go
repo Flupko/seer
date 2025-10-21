@@ -64,7 +64,6 @@ type UserPreferences struct {
 
 type UserView struct {
 	User
-	Balance int64
 }
 
 type MinimalUser struct {
@@ -277,10 +276,8 @@ func (r *UserRepo) GetViewByID(ctx context.Context, userID uuid.UUID) (*UserView
 
 	query := `SELECT u.id, u.email, u.username, u.password_hash, u.provider_id, u.role, u.profile_image_key, 
 	u.created_at, 
-	u.status, u.version,
-	la.balance
+	u.status, u.version
 	FROM users u
-	JOIN ledger_accounts la ON u.id = la.user_id AND la.account_type = 'liability' AND la.currency = 'USDT'
 	WHERE u.id = $1`
 
 	row := r.db.QueryRow(ctx, query, userID)
@@ -296,7 +293,6 @@ func (r *UserRepo) GetViewByID(ctx context.Context, userID uuid.UUID) (*UserView
 		&user.CreatedAt,
 		&user.Status,
 		&user.Version,
-		&user.Balance,
 	)
 
 	if err != nil {

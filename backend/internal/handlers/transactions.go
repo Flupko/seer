@@ -30,7 +30,7 @@ func NewTransactionHandler(validate *validator.Validate, tm *market.TransactionM
 
 type betReq struct {
 	BetAmount      *numeric.BigDecimal `json:"betAmount" validate:"required"`
-	MinWantedGain  *numeric.BigDecimal `json:"minWantedGain" validate:"required,dec_scale=2,dec_min=0.5,dec_max=1000000"`
+	MinWantedGain  *numeric.BigDecimal `json:"minWantedGain" validate:"required,dec_scale=2,dec_min=0.1,dec_max=1000000"`
 	MarketID       uuid.UUID           `json:"marketId" validate:"required"`
 	OutcomeID      int64               `json:"outcomeId" validate:"required"`
 	Currency       finance.Currency    `json:"currency" validate:"required,oneof=USDT"`
@@ -70,6 +70,7 @@ func (h *TransactionHandler) PlaceBet(c echo.Context) error {
 	}
 
 	if _, err := h.tm.AddBet(ctx, br); err != nil {
+		fmt.Println("error placing bet:", err)
 		return mapErrorRepo(err)
 	}
 
@@ -99,7 +100,6 @@ func (h *TransactionHandler) CashoutBet(c echo.Context) error {
 	}
 
 	if _, err := h.tm.CashoutBet(ctx, cr); err != nil {
-		fmt.Println("error cashing out bet:", err)
 		return mapErrorRepo(err)
 	}
 
@@ -108,22 +108,34 @@ func (h *TransactionHandler) CashoutBet(c echo.Context) error {
 }
 
 type balanceReq struct {
-	Currency finance.Currency `query:"currency" validate:"required,oneof=USDT"`
+	Currency finance.Currency `param:"currency" validate:"required,oneof=USDT"`
+}
+
+type balanceRes struct {
+	Balance  *numeric.BigDecimal `json:"balance"`
+	Currency finance.Currency    `json:"currency"`
+	Version  int64               `json:"version"`
 }
 
 func (h *TransactionHandler) GetBalance(c echo.Context) error {
 	r := &balanceReq{}
-	if err := utils.ParseAndValidateQueryParams(c, r, h.validate); err != nil {
+	if err := utils.ParseAndValidadePathParams(c, r, h.validate); err != nil {
 		return err
 	}
 
 	user := utils.ContextGetUser(c)
 	ctx := c.Request().Context()
 
-	balanceCents, err := h.fm.GetUserBalanceLiabiliy(ctx, user.ID, r.Currency)
+	balance, version, err := h.fm.GetUserBalanceLiabiliy(ctx, user.ID, r.Currency)
 	if err != nil {
 		return fmt.Errorf("failed to get user balance: %w", err)
 	}
 
-	return c.JSON(http.StatusOK, utils.Envelope{"balanceCents": balanceCents})
+	res := &balanceRes{
+		Balance:  balance,
+		Currency: r.Currency,
+		Version:  version,
+	}
+
+	return c.JSON(http.StatusOK, res)
 }

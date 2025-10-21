@@ -7,6 +7,5 @@ export const useUserQuery = () => {
         queryFn: () => getUser(),
         retry: false,
         staleTime: 60 * 60 * 1000, // 1 hour
-        notifyOnChangeProps: ['data', 'isPending']
     });
 }

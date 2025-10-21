@@ -287,6 +287,7 @@ CREATE TABLE markets (
     currency TEXT NOT NULL CHECK (currency IN ('USDT')),
     status TEXT NOT NULL CHECK (status IN ('draft', 'opened', 'paused', 'settling', 'resolved', 'cancelled')),
     img_key TEXT NOT NULL,
+    slug TEXT NOT NULL UNIQUE,
     
     house_ledger_account_id UUID NOT NULL REFERENCES ledger_accounts(id),
     q0_seeding NUMERIC(27, 12) NOT NULL, -- seeding (= nb initial shares for each outcome) when market opens

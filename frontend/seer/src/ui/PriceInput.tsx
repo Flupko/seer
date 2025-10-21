@@ -86,6 +86,7 @@ function toFixedDp(intPart: string, fracPart: string, dp: number): string {
 // Round-half-down for positive numbers on a normalized dot string
 function roundHalfDownStr(normalizedDot: string, dp: number): string {
     if (!normalizedDot) return "";
+    console.log("roundHalfDownStr", normalizedDot, dp);
     const parts = normalizedDot.split(".");
     const intPart = parts[0] || "0";
     const fracPart = parts[1] || "";
@@ -120,29 +121,29 @@ export default function PriceInput({
         return sanitizeForEditing(init);
     });
 
-    const setVal = (v: string) => {
-        setInner(v);
-    };
 
 
     const commitRound = () => {
         if (!inner) return;
-        const hasComma = inner.includes(",");
-        const normalized = hasComma ? inner.replace(",", ".") : inner;
+
+        const normalized = inner.replace(",", ".");
         const roundedNorm = roundHalfDownStr(normalized, maxDecimals);
-        setVal(roundedNorm);
-        onValueChange?.(roundedNorm);
+        setInner(roundedNorm);
     }
 
 
     const onChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const next = sanitizeForEditing(e.target.value);
-        setVal(next);
-        if (next !== "") {
-            onValueChange?.(next);
-        } else {
+        setInner(next);
+        if (!next) {
             onValueChange?.(undefined);
+            return;
         }
+
+        const normalized = next.replace(",", ".");
+        const roundedNorm = roundHalfDownStr(normalized, maxDecimals);
+        onValueChange?.(roundedNorm);
+
     }
 
     return (
@@ -158,7 +159,8 @@ export default function PriceInput({
                 onChange={onChange}
                 onBlur={commitRound}
                 className={`input-base w-full bg-gray-900 flex-nowrap rounded-md text-sm h-12 py-3 pl-10 font-bold
-          border border-transparent outline-none focus:border-primary-blue placeholder:text-gray-400 placeholder:font-normal text-white`}
+          border border-transparent outline-none focus:border-primary-blue placeholder:text-gray-400 placeholder:font-normal text-white
+          transition-colors duration-100`}
                 {...rest}
             />
         </div>

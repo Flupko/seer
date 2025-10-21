@@ -31,7 +31,6 @@ type userMeRes struct {
 	Username        string             `json:"username"`
 	ProfileImageKey string             `json:"profileImageKey,omitempty"`
 	Status          repos.UserStatus   `json:"status"`
-	Balance         int64              `json:"balance"`
 }
 
 func (h *UserHandler) UserMe(c echo.Context) error {
@@ -55,7 +54,6 @@ func (h *UserHandler) UserMe(c echo.Context) error {
 		ProviderID:  userView.ProviderID,
 		HasPassword: userView.PasswordHash != nil,
 		Status:      userView.Status,
-		Balance:     userView.Balance,
 	}
 
 	if userView.Username.Valid {

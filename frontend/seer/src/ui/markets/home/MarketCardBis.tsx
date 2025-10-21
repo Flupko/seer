@@ -4,7 +4,7 @@ import { MarketView } from "@/lib/definitions"; // Import from your types file
 import { useOdds } from "@/lib/hooks/useOdds";
 import { useDrawerStore } from "@/lib/stores/drawer";
 import { AnimatedOdds } from "@/ui/AnimatedOdds";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Clock, TrendingUp } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useState } from "react";
@@ -27,10 +27,20 @@ export default function MarketCardBis({ marketInitial }: { marketInitial: Market
 
 
     const ws = useWebSocket();
-    const qc = useQueryClient();
 
     // On mount add the listener
     useEffect(() => {
+        if (!ws) return;
+
+        ws.emit({ type: "get:market_state", payload: { marketID: market.id } });
+
+        const off = ws.onConnect(() => {
+            ws.emit({ type: "get:market_state", payload: { marketID: market.id } });
+        });
+
+        return () => {
+            off();
+        }
 
     }, [ws, market.id]);
 
@@ -106,6 +116,10 @@ export default function MarketCardBis({ marketInitial }: { marketInitial: Market
                 <div className="flex gap-2.5">
                     {topOutcomes.map((outcome, idx) => {
 
+                        // const bg = idx === 0 ? "bg-red-400/20" : "bg-green-400/20";
+                        // const bgHover = idx === 0 ? "hover:bg-red-400/90" : "hover:bg-green-400/90";
+                        // const outcomeColor = idx === 0 ? "text-red-500" : "text-green-500";
+
                         return (
                             <button
                                 key={outcome.id}
@@ -113,7 +127,7 @@ export default function MarketCardBis({ marketInitial }: { marketInitial: Market
                                 onClick={() => {
                                     closeDrawer();
                                     // Wait some time
-                                    openDrawer('bet', { marketId: market.id, outcomeId: outcome.id });
+                                    openDrawer('bet', { marketId: market.id, initialOutcomeId: outcome.id });
                                 }}
                             >
                                 <div className="text-sm font-bold line-clamp-1 pr-3 text-start">

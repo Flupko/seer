@@ -6,7 +6,8 @@ export default function MenuHorizontalItem({ active = false, children, ...rest }
         h-9.5 
         flex
         flex-1
-        md:flex-none
+
+        sm:flex-none
         justify-center
         font-medium 
         select-none 

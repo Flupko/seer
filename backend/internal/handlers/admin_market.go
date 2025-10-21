@@ -40,6 +40,7 @@ type createMarketReq struct {
 	Description string                   `json:"description" validate:"required,min=10"`
 	Currency    finance.Currency         `json:"currency" validate:"required,oneof=USDT"`
 	ImgKey      string                   `json:"imgKey" validate:"required"`
+	Slug        string                   `json:"slug" validate:"required,slug,min=3,max=100"`
 	Q0_Seeding  *numeric.BigDecimal      `json:"q0Seeding" validate:"dec_min=1,dec_max=1000"`          // Max seeding of 1000 USDT per shares
 	Alpha       *numeric.BigDecimal      `json:"alpha" validate:"dec_min=0.01,dec_max=1,dec_scale=12"` // Between 0.01 and 1
 	Fee         *numeric.BigDecimal      `json:"fee" validate:"dec_min=0.01,dec_max=0.1"`              // Between 1% and 10%

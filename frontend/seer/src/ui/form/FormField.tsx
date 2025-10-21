@@ -21,7 +21,7 @@ export default function FormField<T extends FieldValues>({ name,
             {label && <label className="text-xs font-semibold text-white mb-1.5 block">{label}</label>}
             <Input id={name} hasError={error?.message != undefined} {...register(name)} {...inputProps} />
             {error &&
-                <motion.label className="text-xs font-semibold text-red-500 mt-2 block" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, ease: "easeIn" }}>
+                <motion.label className="text-xs font-semibold text-error mt-2 block" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, ease: "easeIn" }}>
                     {error.message}
                 </motion.label>}
         </div>

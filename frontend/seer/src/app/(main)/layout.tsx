@@ -1,4 +1,5 @@
 import { getFeaturedCategories } from "@/lib/api";
+import BetsLive from "@/ui/bet/bets_live/BetsLive";
 import MainWrapper from "@/ui/MainWrapper";
 import CategoriesMenu from "@/ui/markets/home/categories/CategoriesMenu";
 
@@ -11,6 +12,9 @@ export default async function Layout({ children, searchParams }: { children: Rea
             <MainWrapper>
                 <CategoriesMenu categories={categories} />
                 {children}
+                <div className="mt-8">
+                    <BetsLive />
+                </div>
             </MainWrapper>
         </>
     )

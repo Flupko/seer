@@ -42,15 +42,15 @@ func (am *AdminManager) CreateMarket(ctx context.Context, m *Market, categoryIDs
 
 	// Create the market
 	query = `INSERT INTO markets(status, 
-	name, description, currency, img_key,
+	name, description, currency, img_key, slug,
 	house_ledger_account_id, q0_seeding, alpha, fee, cap_price,
 	outcome_sort,
 	close_time)
-	VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+	VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 	RETURNING id`
 
 	err = tx.QueryRow(ctx, query, StatusDraft,
-		m.Name, m.Description, m.Currency, m.ImgKey,
+		m.Name, m.Description, m.Currency, m.ImgKey, m.Slug,
 		m.HouseLedgerAccountID, m.Q0Seeding, m.Alpha, m.Fee, m.CapPrice,
 		m.OutcomeSort,
 		m.CloseTime).Scan(&m.ID)

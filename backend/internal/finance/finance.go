@@ -145,18 +145,20 @@ func (fm *FinanceManager) GetLedgerAccountForCurrency(ctx context.Context, userI
 	return accountID, nil
 }
 
-func (fm *FinanceManager) GetUserBalanceLiabiliy(ctx context.Context, userID uuid.UUID, cur Currency) (numeric.BigDecimal, error) {
+func (fm *FinanceManager) GetUserBalanceLiabiliy(ctx context.Context, userID uuid.UUID, cur Currency) (*numeric.BigDecimal, int64, error) {
 
-	var balance numeric.BigDecimal
-	query := `SELECT balance FROM ledger_accounts WHERE user_id = $1 AND currency = $2 AND account_type = 'liability'`
-	err := fm.db.QueryRow(ctx, query, userID, cur).Scan(&balance)
+	balance := &numeric.BigDecimal{}
+	var version int64
+
+	query := `SELECT balance, version FROM ledger_accounts WHERE user_id = $1 AND currency = $2 AND account_type = 'liability'`
+	err := fm.db.QueryRow(ctx, query, userID, cur).Scan(&balance, &version)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return numeric.BigDecimal{}, ErrAccountNotFound
+			return &numeric.BigDecimal{}, 0, ErrAccountNotFound
 		}
-		return numeric.BigDecimal{}, fmt.Errorf("failed to get user balance: %w", err)
+		return &numeric.BigDecimal{}, 0, fmt.Errorf("failed to get user balance: %w", err)
 	}
-	return balance, nil
+	return balance, version, nil
 }
 
 // func TransferMoney(ctx context.Context, tx pgx.Tx, fromAccountID uuid.UUID, toAccountID uuid.UUID, amountMinor int64, idempotencyKey string) error {

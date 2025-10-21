@@ -45,16 +45,73 @@ const (
 	ErrCodeChatRoomNotFound = "chat_room_not_found"
 )
 
-type JoinLeaveMarketPayload struct {
-	MarketIDs []uuid.UUID `json:"marketIds" validate:"required,max=49,min=1"`
-}
-
 func (h *WsHandler) HandleJoinMarketRooms(c *ws.Client, reqPayload string) {
-	fmt.Println("HandleJoinMarketRooms called")
+	c.Join(ws.MarketsUpdateRoom)
 }
 
 func (h *WsHandler) HandleLeaveMarketRooms(c *ws.Client, reqPayload string) {
 	c.Leave(ws.MarketsUpdateRoom)
+}
+
+type GetMarketStatePayload struct {
+	MarketID uuid.UUID `json:"marketId" validate:"required,max=49,min=1"`
+}
+
+func (h WsHandler) HandleGetMarketState(c *ws.Client, reqPayload string) {
+	ctx, cancel := context.WithTimeout(c.Ctx, 5*time.Second)
+	defer cancel()
+
+	p := &GetMarketStatePayload{}
+	if err := utils.ReadJson(strings.NewReader(reqPayload), p); err != nil {
+		switch {
+		case errors.Is(err, utils.ErrInvalidJSON):
+			h.sendError(c, ErrCodeInvalidPayload)
+		default:
+			h.sendError(c, ErrCodeInternalError)
+		}
+		c.Disconnect()
+		return
+	}
+
+	if err := h.validate.Struct(p); err != nil {
+		h.sendError(c, ErrCodeInvalidPayload)
+		c.Disconnect()
+		return
+	}
+
+	ms, err := h.msm.GetMarketState(ctx, p.MarketID)
+	if err != nil {
+		h.sendError(c, ErrCodeInternalError)
+		return
+	}
+
+	wsPayload := ws.MarketUpdate{
+		ID:      ms.ID,
+		Version: ms.Version,
+	}
+
+	for i := range len(ms.QVec) {
+		wsPayload.Outcomes = append(wsPayload.Outcomes,
+			ws.OutcomeUpdate{
+				ID:       ms.OutcomeIDs[i],
+				Quantity: ms.QVec[i],
+			})
+	}
+
+	wsMsg, err := utils.WsMessage(ws.MarketsUpdateRoom, wsPayload)
+	if err != nil {
+		h.sendError(c, ErrCodeInternalError)
+		return
+	}
+
+	wsBuf, err := json.Marshal(wsMsg)
+	if err != nil {
+		h.sendError(c, ErrCodeInternalError)
+		return
+	}
+
+	c.Send(wsBuf)
+
 }
 
 func (h *WsHandler) HandleJoinBetsRoom(c *ws.Client, reqPayload string) {
@@ -64,14 +121,12 @@ func (h *WsHandler) HandleJoinBetsRoom(c *ws.Client, reqPayload string) {
 
 	latestBetsState, err := h.bm.GetLatestBets(ctx)
 	if err != nil {
-		fmt.Println("error getting latest bets:", err)
 		h.sendError(c, ErrCodeInternalError)
 		return
 	}
 
 	highBetsState, err := h.bm.GetHighBets(ctx)
 	if err != nil {
-		fmt.Println("error getting high bets:", err)
 		h.sendError(c, ErrCodeInternalError)
 		return
 	}
@@ -281,7 +336,6 @@ func (h *WsHandler) HandleSendMessage(c *ws.Client, reqPayload string) {
 
 	p := &SendMessagePayload{}
 	if err := utils.ReadJson(strings.NewReader(reqPayload), p); err != nil {
-		fmt.Println("error reading json:", err)
 		switch {
 		case errors.Is(err, utils.ErrInvalidJSON):
 			h.sendError(c, ErrCodeInvalidPayload)
@@ -293,7 +347,6 @@ func (h *WsHandler) HandleSendMessage(c *ws.Client, reqPayload string) {
 	}
 
 	if err := h.validate.Struct(p); err != nil {
-		fmt.Println("validation error:", err)
 		h.sendError(c, ErrCodeInvalidPayload)
 		c.Disconnect()
 		return
@@ -301,7 +354,6 @@ func (h *WsHandler) HandleSendMessage(c *ws.Client, reqPayload string) {
 
 	sent, err := h.cm.SendMessage(ctx, c.User, p.Message, p.ChatSlug)
 	if err != nil {
-		fmt.Println("error sending message:", err)
 		switch {
 		case errors.Is(err, chat.ErrChatRoomNotFound):
 			h.sendError(c, ErrCodeChatRoomNotFound)

@@ -167,7 +167,10 @@ func (sm *StateManager) updateMarketState(payload string) error {
 		return fmt.Errorf("failed to marshal websocket message: %w", err)
 	}
 
-	if err := sm.rdb.Publish(updateCtx, ws.MarketsUpdateRoom, string(wsBuf)).Err(); err != nil {
+	fmt.Println("Publishing market update for market:", u.MarketID)
+
+	if err := sm.rdb.Publish(updateCtx, fmt.Sprintf("%s%s", ws.RoomPubSubPrefix, ws.MarketsUpdateRoom), string(wsBuf)).Err(); err != nil {
+		fmt.Println("Failed to publish market update:", err)
 		return fmt.Errorf("publish prices: %w", err)
 	}
 	return nil

@@ -4,10 +4,12 @@ import { DrawerType, useDrawerStore } from "@/lib/stores/drawer";
 import { AnimatePresence, motion } from "motion/react";
 import { useMediaQuery } from "usehooks-ts";
 import BetDrawer from "../bet/BetDrawer";
+import SuccessBetDrawer from "../bet/BetSuccessDrawer";
 
 export const drawerComponent: Record<Exclude<DrawerType, null>, React.ElementType> = {
     chat: BetDrawer,
     bet: BetDrawer,
+    betSuccess: SuccessBetDrawer,
 };
 
 export default function Drawer() {
@@ -33,9 +35,17 @@ export default function Drawer() {
                         exit={{ width: 0 }}
                         transition={{ duration: 0.3, ease: "easeInOut" }}
                     >
-                        <div className="w-90 h-full overflow-y-auto">
-                            {DrawerContent && <DrawerContent {...drawerData} />}
-                        </div>
+                        <AnimatePresence mode="wait" initial={false}>
+                            <motion.div className="w-90 h-full overflow-y-auto"
+                                key={currentDrawer}
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                exit={{ opacity: 0 }}
+                                transition={{ duration: 0.07, ease: "linear" }}
+                            >
+                                {DrawerContent && <DrawerContent {...drawerData} />}
+                            </motion.div>
+                        </AnimatePresence>
                     </motion.aside>
                 )}
             </AnimatePresence>

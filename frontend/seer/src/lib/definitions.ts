@@ -30,7 +30,6 @@ export const UserSchema = z.object({
   username: usernameSchema,
   profileImageUrl: z.url().optional(),
   status: statusSchema,
-  balance: z.number().min(0),
 });
 
 export type User = z.infer<typeof UserSchema>;
@@ -167,6 +166,7 @@ export const MarketViewSchema = z.object({
   name: z.string(),
   description: z.string().nullable(),
   imgKey: z.string().optional(),
+  slug: z.string(),
   closeTime: z.string().optional(),
   outcomeSort: z.enum(['price', 'position']),
   alpha: DecimalSchema,
@@ -193,6 +193,27 @@ export const MetadataSchema = z.object({
 
 export type Metadata = z.infer<typeof MetadataSchema>;
 
+export const CurrencySchema = z.enum(["USDT"]);
+export type Currency = z.infer<typeof CurrencySchema>;
+
+export const BalanceSchema = z.object({
+  balance: DecimalSchema,
+  currency: CurrencySchema,
+  version: z.number().int(),
+});
+
+export type Balance = z.infer<typeof BalanceSchema>;
+
+export const PlaceBetSchema = z.object({
+  betAmount: DecimalSchema,
+  minWantedGain: DecimalSchema,
+  marketId: z.uuid(),
+  outcomeId: z.number().int(),
+  currency: CurrencySchema,
+  idempotencyKey: z.string().min(1).max(36),
+});
+
+export type PlaceBet = z.infer<typeof PlaceBetSchema>;
 
 
 

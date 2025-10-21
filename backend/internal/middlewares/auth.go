@@ -2,7 +2,6 @@ package middlewares
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 	"seer/internal/repos"
 	"seer/internal/utils"
@@ -34,9 +33,7 @@ func (am *AuthMiddleware) Authenticate(next echo.HandlerFunc) echo.HandlerFunc {
 		}
 
 		sessionPlain := sessionCookie.Value
-		fmt.Println("Session plain:", sessionPlain)
 		if err = am.validate.Var(sessionPlain, "token_plain"); err != nil {
-			fmt.Println("Session plain:", sessionPlain, "error:", err)
 			var validateErrs validator.ValidationErrors
 			switch {
 			case errors.As(err, &validateErrs):

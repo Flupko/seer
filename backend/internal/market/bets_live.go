@@ -150,7 +150,7 @@ func (blm *BetLiveManager) retrieveBetStateDB(ctx context.Context, betID uuid.UU
 
 	bs := &BetState{}
 
-	query := `SELECT b.id, m.id, m.name, 
+	query := `SELECT b.id, m.id, m.name, m.slug,
 	o.id, o.name, 
 	u.id, u.username, COALESCE(u.profile_image_key, ''),
 	u.hidden, 
@@ -173,7 +173,7 @@ func (blm *BetLiveManager) retrieveBetStateDB(ctx context.Context, betID uuid.UU
 	}{}
 
 	var userHidden bool
-	err := blm.db.QueryRow(ctx, query, betID).Scan(&bs.ID, &bs.MarketID, &bs.MarketName,
+	err := blm.db.QueryRow(ctx, query, betID).Scan(&bs.ID, &bs.MarketID, &bs.MarketName, &bs.MarketSlug,
 		&bs.OutcomeID, &bs.OutcomeName,
 		&user.ID, &user.Username, &user.ProfileImageKey,
 		&userHidden,
@@ -193,7 +193,7 @@ func (blm *BetLiveManager) retrieveBetStateDB(ctx context.Context, betID uuid.UU
 
 func (blm *BetLiveManager) PrepopulateLatestBets(ctx context.Context) error {
 
-	query := `SELECT b.id, m.id, m.name, 
+	query := `SELECT b.id, m.id, m.name, m.slug,
 		o.id, o.name, 
 		u.id, u.username, COALESCE(u.profile_image_key, ''),
 		u.hidden, 
@@ -214,7 +214,7 @@ func (blm *BetLiveManager) PrepopulateLatestBets(ctx context.Context) error {
 
 func (blm *BetLiveManager) PrepopulateHighBets(ctx context.Context) error {
 
-	query := `SELECT b.id, m.id, m.name, 
+	query := `SELECT b.id, m.id, m.name, m.slug,
 		o.id, o.name, 
 		u.id, u.username, COALESCE(u.profile_image_key, ''),
 		u.hidden, 
@@ -255,7 +255,7 @@ func (blm *BetLiveManager) prepopulateBets(ctx context.Context, cacheKey string,
 		var userHidden bool
 
 		err := rows.Scan(
-			&bs.ID, &bs.MarketID, &bs.MarketName,
+			&bs.ID, &bs.MarketID, &bs.MarketName, &bs.MarketSlug,
 			&bs.OutcomeID, &bs.OutcomeName,
 			&user.ID, &user.Username, &user.ProfileImageKey,
 			&userHidden,
@@ -348,6 +348,7 @@ func (blm *BetLiveManager) updateCacheAndPub(ctx context.Context, bs *BetState, 
 		ID:          bs.ID,
 		MarketID:    bs.MarketID,
 		MarketName:  bs.MarketName,
+		MarketSlug:  bs.MarketSlug,
 		OutcomeID:   bs.OutcomeID,
 		OutcomeName: bs.OutcomeName,
 		Wager:       bs.Wager,

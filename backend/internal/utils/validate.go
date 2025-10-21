@@ -50,6 +50,7 @@ func SetupValidator() *validator.Validate {
 	v.RegisterValidation("dec_scale", BigDecimalScaleValidation)
 
 	v.RegisterValidation("token_plain", validateTokenPlain)
+	v.RegisterValidation("slug", validateSlug)
 	return v
 }
 
@@ -60,6 +61,16 @@ func validateTokenPlain(fl validator.FieldLevel) bool {
 	}
 	_, err := base64.StdEncoding.WithPadding(base64.NoPadding).DecodeString(tokenPlain)
 	return err == nil
+}
+
+func validateSlug(fl validator.FieldLevel) bool {
+	slug := fl.Field().String()
+	for _, ch := range slug {
+		if (ch < 'a' || ch > 'z') && (ch < '0' || ch > '9') && ch != '-' {
+			return false
+		}
+	}
+	return true
 }
 
 func BigDecimalMinValidation(fl validator.FieldLevel) bool {

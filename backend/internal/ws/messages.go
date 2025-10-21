@@ -48,6 +48,7 @@ type BetUpdate struct {
 	ID          uuid.UUID           `json:"id"`
 	MarketID    uuid.UUID           `json:"marketID"`
 	MarketName  string              `json:"marketName"`
+	MarketSlug  string              `json:"marketSlug"`
 	OutcomeID   int64               `json:"outcomeId"`
 	OutcomeName string              `json:"outcomeName"`
 	User        *UserState          `json:"user,omitempty"`
@@ -63,7 +64,7 @@ type WSError struct {
 
 const (
 	ChatRoomPrefix    = "chat:"
-	MarketsUpdateRoom = "marketsUpdate"
+	MarketsUpdateRoom = "markets_update"
 	BetsLatestRoom    = "bets:latest"
 	BetsHighRoom      = "bets:high"
 	BalanceRoom       = "balance"

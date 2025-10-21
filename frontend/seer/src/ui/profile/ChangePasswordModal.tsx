@@ -93,7 +93,7 @@ export default function ChangePasswordModal() {
                 </div>
 
                 {errors.root &&
-                    <motion.div className="text-sm font-semibold text-red-500 block text-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, ease: "easeIn" }}>
+                    <motion.div className="text-sm font-semibold text-error block text-center" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3, ease: "easeIn" }}>
                         {errors.root.message}
                     </motion.div>}
 

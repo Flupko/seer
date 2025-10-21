@@ -7,6 +7,7 @@ body {
   color: white;
   border: none;
   box-sizing: border-box;
+  scrollbar-gutter: stable both-edges;
 }
 
 .font-numbers {
@@ -23,6 +24,8 @@ body {
   --color-neon-blue: #0080ff;
   --color-blue-pressed:#004386;
 
+  --color-error: #f1323e;
+
   --primary-blue-filter: brightness(0) saturate(100%) invert(54%) sepia(98%) saturate(1675%) hue-rotate(186deg) brightness(100%) contrast(96%);
   --neon-blue-filter: brightness(0) saturate(100%) invert(34%) sepia(23%) saturate(7463%) hue-rotate(197deg) brightness(103%) contrast(107%);
 
@@ -37,6 +40,27 @@ body {
   --color-gray-300: #9ba5b4;
   --color-gray-200: #bec6d1;
   --color-gray-100: #e6ecf1;
+
+  --green-50: #213b3f;
+  --green-100: #275749;
+  --green-200: #2e7353;
+  --green-300: #358f5d;
+  --green-400: #3bab68;
+  --green-500: #43c773;
+  --green-600: #69d290;
+  --green-700: #91dead;
+  --green-800: #b8e9ca;
+  --green-900: #dff5e7;
+  --red-50: #312c39;
+  --red-100: #542e38;
+  --red-200: #773138;
+  --red-300: #9a3338;
+  --red-400: #be3537;
+  --red-500: #e13737;
+  --red-600: #e76363;
+  --red-700: #ee9090;
+  --red-800: #f5bcbc;
+  --red-900: #fbe8e8;
 
 }
 
@@ -58,6 +82,8 @@ body {
   --color-neon-blue: #0080ff;
   --color-blue-pressed:#004386;
 
+  --color-error: #f1323e;
+
   --primary-blue-filter: brightness(0) saturate(100%) invert(54%) sepia(98%) saturate(1675%) hue-rotate(186deg) brightness(100%) contrast(96%);
   --neon-blue-filter: brightness(0) saturate(100%) invert(34%) sepia(23%) saturate(7463%) hue-rotate(197deg) brightness(103%) contrast(107%);
 
@@ -71,6 +97,29 @@ body {
   --color-gray-300: #9ba5b4;
   --color-gray-200: #bec6d1;
   --color-gray-100: #e6ecf1;
+
+  --green-50: #213b3f;
+  --green-100: #275749;
+  --green-200: #2e7353;
+  --green-300: #358f5d;
+  --green-400: #3bab68;
+  --green-500: #43c773;
+  --green-600: #69d290;
+  --green-700: #91dead;
+  --green-800: #b8e9ca;
+  --green-900: #dff5e7;
+  --red-50: #312c39;
+  --red-100: #542e38;
+  --red-200: #773138;
+  --red-300: #9a3338;
+  --red-400: #be3537;
+  --red-500: #e13737;
+  --red-600: #e76363;
+  --red-700: #ee9090;
+  --red-800: #f5bcbc;
+  --red-900: #fbe8e8;
+
+
 }
 
 

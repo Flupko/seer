@@ -48,6 +48,7 @@ export const BetUpdateSchema = z.object({
     id: z.uuid(),
     marketID: z.uuid(),
     marketName: z.string(),
+    marketSlug: z.string(),
     outcomeId: z.number(),
     outcomeName: z.string(),
     wager: DecimalSchema,
@@ -56,6 +57,8 @@ export const BetUpdateSchema = z.object({
     placedAt: z.coerce.date(),
     user: WsUserSchema.optional(),
 });
+
+export type BetUpdate = z.infer<typeof BetUpdateSchema>;
 
 export const OnlineUpdateSchema = z.object({
     usersOnlineCount: z.number().int(),

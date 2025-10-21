@@ -167,7 +167,6 @@ func (h *AuthHandler) GetAuthCallback(c echo.Context) (test error) {
 
 	receivedState := c.QueryParam("state")
 	if storedState != receivedState {
-		fmt.Println("state mismatch", "stored", storedState, "received", receivedState)
 		return h.redirectWithError(c, false)
 	}
 
@@ -196,14 +195,12 @@ func (h *AuthHandler) GetAuthCallback(c echo.Context) (test error) {
 
 	// If user is not activated, abort early
 	if !userData.EmailVerified {
-		fmt.Println("email not verified")
 		return h.redirectWithError(c, true)
 	}
 
 	// Get or create user
 	user, err := h.getOrCreateUser(ctx, authProvider, &userData)
 	if err != nil {
-		fmt.Println("get or create user error:", err)
 		return h.redirectWithError(c, true)
 	}
 

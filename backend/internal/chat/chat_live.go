@@ -290,7 +290,6 @@ func (cm *ChatManager) persistMessageDB(ctx context.Context, m *ChatMessageView)
 	`
 
 	if _, err := cm.db.Exec(ctx, query, m.ID, m.User.ID, m.ChatID, m.Content, m.CreatedAt); err != nil {
-		fmt.Println("error inserting chat message:", err)
 		return fmt.Errorf("failed to insert chat message: %w", err)
 	}
 

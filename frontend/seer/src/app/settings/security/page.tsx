@@ -1,18 +1,22 @@
 "use client"
 
-import { getSessions } from "@/lib/api";
+import { getSessions, revokeSession } from "@/lib/api";
+import { Session } from "@/lib/definitions";
 import { useUserQuery } from "@/lib/queries/useUserQuery";
 import { useModalStore } from "@/lib/stores/modal";
+import { timeSince } from "@/lib/utils/date";
 import ContainerSmall from "@/ui/containers/ContainerSmall";
 import MenuInput from "@/ui/menu_small_vertical/MenuVertical";
-import { useQuery } from "@tanstack/react-query";
+import { TableCell, TableHead, TableHeading, TableRow } from "@/ui/Table";
+import { toastStyled } from "@/ui/Toast";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronRight } from "lucide-react";
 import { useState } from "react";
 import Google from '../../../../public/google.svg';
 import Lock from "../../../../public/lock.svg";
 import Twitch from '../../../../public/twitch.svg';
 import Container from "../Container";
-import SessionDisplay from "./Session";
+
 
 export default function SecurityPage() {
 
@@ -104,15 +108,13 @@ export default function SecurityPage() {
                 <div className="overflow-x-auto pb-2">
                     <table className="w-full overflow-x-scroll">
 
-                        <thead className="h-12 border-separate border-spacing-0">
-                            <tr className="text-gray-200 text-sm text-left">
-                                <TableHeading>Broswer</TableHeading>
-                                <TableHeading>Near</TableHeading>
-                                <TableHeading>IP Address</TableHeading>
-                                <TableHeading>Last Used</TableHeading>
-                                <TableHeading>Action</TableHeading>
-                            </tr>
-                        </thead>
+                        <TableHead>
+                            <TableHeading>Broswer</TableHeading>
+                            <TableHeading>Near</TableHeading>
+                            <TableHeading>IP Address</TableHeading>
+                            <TableHeading>Last Used</TableHeading>
+                            <TableHeading>Action</TableHeading>
+                        </TableHead>
 
                         <tbody>
                             {
@@ -125,15 +127,37 @@ export default function SecurityPage() {
                     </table>
 
                 </div>
-            </Container>
-        </div>
+            </Container >
+        </div >
     );
 }
 
-function TableHeading({ children }: { children: React.ReactNode }) {
+function SessionDisplay({ session }: { session: Session }) {
+    const queryClient = useQueryClient();
+
+    const { mutate } = useMutation({
+        mutationFn: revokeSession,
+        onSuccess: () => {
+            // Purge the session from the list by refetching
+            queryClient.invalidateQueries({ queryKey: ["user", "sessions"] });
+        },
+        onError: () => {
+            toastStyled("Error revoking session", { type: "error" });
+        },
+    });
+
     return (
-        <th className="text-gray-200 text-sm text-left font-bold px-6 text-nowrap">
-            {children}
-        </th>
+        <TableRow>
+            <TableCell current={session.current}>{(session.browser && session.os) ? `${session.browser} (${session.os})` : "-"}</TableCell>
+            <TableCell current={session.current}>{(session.city && session.country) ? `${session.city} (${session.country})` : "-"}</TableCell>
+            <TableCell current={session.current}>{session.ip ?? "-"}</TableCell>
+            <TableCell current={session.current}>{session.current ? "Online" : timeSince(session.lastUsedAt)}</TableCell>
+            <TableCell current={session.current}>
+                {session.current ? "Current" : session.active ?
+                    <span className="text-red-400 cursor-pointer hover:text-red-300 transition-colors" onClick={() => mutate(session.id)}>Revoke Session</span>
+                    : <span className="text-gray-400">Logged out</span>}
+            </TableCell>
+        </TableRow>
     )
 }
+

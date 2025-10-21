@@ -1,4 +1,4 @@
-import { CategorySchema, ChangePasswordPayload, LoginFormValues, MarketSearch, MarketViewSchema, MetadataSchema, ProfileCompletionFormValues, RegisterFormValues, SessionsSchema, SetPasswordPayload, UpdateUserPreferences, User, UserPreferencesSchema, UserSchema } from "@/lib/definitions";
+import { BalanceSchema, CategorySchema, ChangePasswordPayload, Currency, LoginFormValues, MarketSearch, MarketViewSchema, MetadataSchema, PlaceBet, ProfileCompletionFormValues, RegisterFormValues, SessionsSchema, SetPasswordPayload, UpdateUserPreferences, User, UserPreferencesSchema, UserSchema } from "@/lib/definitions";
 import z from "zod";
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || ""
@@ -370,4 +370,52 @@ export const getMarket = async (marketId: string) => {
   }
 
   return result.data;
+}
+
+
+export const getBalance = async (currency: Currency) => {
+  const response = await fetch(`${API_BASE_URL}/user/balance/${currency}`, {
+    credentials: "include",
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    const error: APIError = {
+      message: data.message || "Failed to fetch balance",
+      errors: data.errors,
+    };
+    throw error;
+  }
+
+  const result = BalanceSchema.safeParse(data);
+  if (!result.success) {
+    throw new Error("Invalid balance data");
+  }
+
+  return result.data;
+
+}
+
+export const postBet = async (placeBet: PlaceBet) => {
+  const response = await fetch(`${API_BASE_URL}/market/bet`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    credentials: "include",
+    body: JSON.stringify(placeBet),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    const error: APIError = {
+      message: data.message || "Failed to place bet",
+      errors: data.errors,
+    };
+
+    throw error;
+  }
+
+  return null;
 }

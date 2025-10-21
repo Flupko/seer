@@ -136,8 +136,9 @@ func main() {
 	hub := ws.NewHub(context.TODO(), logger, rdb)
 	wsRouter := ws.NewSocketRouter(validate)
 
-	wsRouter.AddRouteHandler("subscribe:markets", wsHandlers.HandleJoinMarketRooms)
-	wsRouter.AddRouteHandler("leave:markets", wsHandlers.HandleLeaveMarketRooms)
+	wsRouter.AddRouteHandler("subscribe:markets_update", wsHandlers.HandleJoinMarketRooms)
+	wsRouter.AddRouteHandler("leave:markets_update", wsHandlers.HandleLeaveMarketRooms)
+	wsRouter.AddRouteHandler("get:market_state", wsHandlers.HandleGetMarketState)
 
 	wsRouter.AddRouteHandler("subscribe:bets", wsHandlers.HandleJoinBetsRoom)
 	wsRouter.AddRouteHandler("leave:bets", wsHandlers.HandleLeaveBetsRoom)
@@ -208,6 +209,7 @@ func main() {
 	e.GET("/user/me", authMiddleware.Authenticate(userHandler.UserMe))
 	e.GET("/user/prefs", authMiddleware.RequireAuthentication(userHandler.GetPreferences))
 	e.PATCH("/user/prefs", authMiddleware.RequireAuthentication(userHandler.UpdatePreferences))
+	e.GET("/user/balance/:currency", authMiddleware.RequireAuthentication(transactionHandler.GetBalance))
 
 	e.GET("/market/quote", marketHandler.GetQuoteBet)
 	e.POST("/market/bet", authMiddleware.RequireAuthentication(transactionHandler.PlaceBet))
@@ -227,9 +229,6 @@ func main() {
 	e.GET("/comments", commentHandler.UserGetComments)
 
 	e.POST("/comments/report", authMiddleware.RequireAuthentication(userModateHandler.ReportComment))
-
-	e.GET("/account/balance", authMiddleware.RequireAuthentication(transactionHandler.GetBalance))
-
 	e.POST("/admin/market", authMiddleware.RequireRole(adminMarketHandler.CreateMarket, repos.AdminRole))
 	e.POST("admin/market/settle", authMiddleware.RequireRole(adminMarketHandler.ResolveMarket, repos.AdminRole))
 	e.PATCH("admin/market/resume", authMiddleware.RequireRole(adminMarketHandler.ResumeMarket, repos.AdminRole))

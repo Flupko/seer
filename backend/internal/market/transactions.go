@@ -21,7 +21,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-var minBetAmount = decimal.New(1, 0)     // 1 USDT
+var minBetAmount = decimal.New(1, 1)     // 0.1 USDT
 var maxBetAmount = decimal.New(10000, 0) // 10k USDT
 
 type TransactionManager struct {
@@ -57,6 +57,7 @@ func (tm *TransactionManager) AddBet(ctx context.Context, r BetRequest) (*Bet, e
 	}
 
 	if r.MinWantedGain.Cmp(&r.BetAmount.Big) <= 0 {
+		fmt.Println("invalid quoted gain:", r.MinWantedGain.String(), "bet amount:", r.BetAmount.String())
 		return nil, ErrInvalidQuotedGain
 	}
 
@@ -207,6 +208,8 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) (*Be
 		AvgPrice:         avgPrice,
 		IdempotencyKey:   r.IdempotencyKey,
 	}
+
+	fmt.Println("feeApplied", bet.FeeApplied.String())
 
 	query = `
 	INSERT INTO bets(ledger_account_id, ledger_transfer_id, outcome_id, payout, total_price_paid, fee_applied, fee_paid, avg_price, idempotency_key)

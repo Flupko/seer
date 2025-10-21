@@ -50,7 +50,7 @@ export class WSClient {
 
         // Register schemas
         this.registerSchema("balance", BalanceUpdateSchema);
-        this.registerSchema("market", MarketUpdateSchema);
+        this.registerSchema("markets_update", MarketUpdateSchema);
         this.registerSchema("bets", BetUpdateSchema);
         this.registerSchema("chat", ChatMessageSchema);
         this.registerSchema("online", OnlineUpdateSchema);

@@ -2,20 +2,22 @@ import { ChevronDown } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 
-type MenuChoice = { value: string; element: React.ReactNode };
+type MenuChoice = { value: any; element: React.ReactNode };
 
 export default function MenuVertical({
     leftPart,
     choices,
     value,
     onChange,
-    height
+    height = "h-12",
+    bg = "bg-gray-800",
 }: {
     leftPart?: React.ReactNode;
-    value: string;
-    onChange: (v: string) => void;
+    value: any;
+    onChange: (v: any) => void;
     choices: MenuChoice[];
-    height?: string
+    height?: string;
+    bg?: string;
 }) {
     const [open, setOpen] = useState(false);
     const wrapRef = useRef<HTMLDivElement | null>(null);
@@ -45,7 +47,7 @@ export default function MenuVertical({
                 aria-haspopup="menu"
                 aria-expanded={open}
                 onClick={() => setOpen((p) => !p)}
-                className={`cursor-pointer border ${height ? height : "h-12"} px-4 bg-gray-800 hover:border-primary-blue transition-all duration-200 rounded-md w-full items-center text-left flex justify-between
+                className={`cursor-pointer border ${height} ${bg} px-4 hover:border-primary-blue transition-all duration-200 rounded-md w-full items-center text-left flex justify-between
                     ${open ? "border-primary-blue" : "border-transparent"}`}
             >
                 <div className="text-sm font-medium flex gap-3 items-center">

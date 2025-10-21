@@ -17,7 +17,7 @@ export default function NavbarLogged() {
     return (
         <>
             <div className="justify-self-center">
-                <Balance />
+                <Balance currency="USDT" />
             </div>
 
             <ul className="flex gap-2.5 justify-self-end">

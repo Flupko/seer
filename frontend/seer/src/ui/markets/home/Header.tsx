@@ -1,6 +1,7 @@
 "use client";
 
 import { Category, sortOptions, statusOptions } from "@/lib/definitions";
+import { useUpdateSearchParams } from "@/lib/hooks/useUpdateSearchParams";
 import MenuVertical from "@/ui/menu_small_vertical/MenuVertical";
 import { ArrowDownNarrowWide, Clock } from "lucide-react";
 import Image from "next/image";
@@ -14,6 +15,8 @@ export function Header({ activeCategory }: { activeCategory: Category }) {
     const sort = params.get("sort") ?? "trending";
     const status = params.get("status") ?? "active";
     const router = useRouter();
+
+    const { setParams } = useUpdateSearchParams();
 
     const updateQuery = (key: string, value: string) => {
         const newParams = new URLSearchParams(params.toString());
@@ -39,7 +42,7 @@ export function Header({ activeCategory }: { activeCategory: Category }) {
                         <MenuVertical leftPart={<Clock className="w-5 h-5" strokeWidth={1.7} />}
                             choices={statusOptions}
                             value={status}
-                            onChange={(value) => updateQuery("status", value)}
+                            onChange={(value) => setParams({ status: value })}
                             height="h-11" />
                     </div>
 
@@ -47,7 +50,7 @@ export function Header({ activeCategory }: { activeCategory: Category }) {
                         <MenuVertical leftPart={<ArrowDownNarrowWide className="w-5 h-5" strokeWidth={1.7} />}
                             choices={sortOptions}
                             value={sort}
-                            onChange={(value) => updateQuery("sort", value)}
+                            onChange={(value) => setParams({ sort: value })}
                             height="h-11" />
                     </div>
 
