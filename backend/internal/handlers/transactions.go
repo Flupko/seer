@@ -61,6 +61,7 @@ func (h *TransactionHandler) PlaceBet(c echo.Context) error {
 
 	br := market.BetRequest{
 		LedgerAccountID: userLedgerAccountID,
+		UserID:          user.ID,
 		MarketID:        b.MarketID,
 		OutcomeID:       b.OutcomeID,
 		BetAmount:       b.BetAmount,
@@ -100,6 +101,7 @@ func (h *TransactionHandler) CashoutBet(c echo.Context) error {
 	}
 
 	if _, err := h.tm.CashoutBet(ctx, cr); err != nil {
+		fmt.Println("error cashing out bet:", err)
 		return mapErrorRepo(err)
 	}
 

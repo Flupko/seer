@@ -230,7 +230,7 @@ func Bisect(lo, hi, tol decimal.Big, f func(x decimal.Big) (decimal.Big, error))
 }
 
 // GetMaxSharesCanBuy returns the maximum number of shares that can be bought for an outcome with a certain budget
-func GetMaxSharesCanBuy(q []decimal.Big, idx int, alpha, budget decimal.Big) (decimal.Big, error) {
+func GetMaxSharesCanBuy(buyYes bool, q []decimal.Big, idx int, alpha, budget decimal.Big) (decimal.Big, error) {
 
 	if budget.Sign() <= 0 {
 		return zeroDec, errors.New("budget must be > 0")
@@ -306,126 +306,6 @@ func GetMaxSharesCanBuy(q []decimal.Big, idx int, alpha, budget decimal.Big) (de
 	}
 
 	return nbSharesCanBuy, nil
-}
-
-// MaxSharesToPriceCap returns the maximum number of shares buyable for an outcome such after buying those shares
-// the outcome's price is < (STRICTLY LESS) than capD
-func MaxSpendToPriceCap(q []decimal.Big, idx int, alpha, cap decimal.Big) (decimal.Big, error) {
-
-	if len(q) == 0 {
-		return zeroDec, errors.New("empty q vector")
-	}
-
-	if idx < 0 || idx >= len(q) {
-		return zeroDec, errors.New("idx is out of range")
-	}
-
-	if alpha.Sign() <= 0 {
-		return zeroDec, errors.New("alpha must be > 0")
-	}
-
-	pricesInit, err := PricesDec(q, alpha)
-
-	if err != nil {
-		return zeroDec, fmt.Errorf("PricesDec failed: %w", err)
-	}
-
-	// If price is already greater than or equal to capD return 0
-	if pricesInit[idx].Cmp(&cap) >= 0 {
-		out := decimal.New(0, 0)
-		return *out, nil
-	}
-
-	var lo, hi decimal.Big
-
-	lo.Set(&minShares)
-	hi.Set(&minShares)
-
-	qNext := make([]decimal.Big, len(q))
-	copy(qNext, q)
-
-	for {
-
-		ctx.Add(&qNext[idx], &q[idx], &hi)
-		if err := ctx.Err(); err != nil {
-			return zeroDec, fmt.Errorf("failed to compute qNext[idx]: %w", err)
-		}
-
-		nextPrices, err := PricesDec(qNext, alpha)
-		if err != nil {
-			return zeroDec, fmt.Errorf("failed to compute nextPirces: %w", err)
-		}
-
-		if nextPrices[idx].Cmp(&cap) >= 0 {
-			break
-		}
-
-		hi.Mul(&hi, decimal.New(2, 0))
-		if err := ctx.Err(); err != nil {
-			return zeroDec, fmt.Errorf("failed to double hi: %w", err)
-		}
-
-		if hi.Cmp(maxHi) > 0 {
-			return zeroDec, fmt.Errorf("overflow: hi > maxHi")
-		}
-	}
-
-	// If lo == hi, return 0 because buying anything >= minShares would put us over the cap
-	if lo.Cmp(&hi) == 0 {
-		return zeroDec, nil
-	}
-
-	f := func(deltaShares decimal.Big) (decimal.Big, error) {
-		ctx.Add(&qNext[idx], &q[idx], &deltaShares)
-		if err := ctx.Err(); err != nil {
-			return zeroDec, fmt.Errorf("failed to compute qNext[idx]: %w", err)
-		}
-
-		nextPrices, err := PricesDec(qNext, alpha)
-		if err != nil {
-			return zeroDec, fmt.Errorf("failed to compute nextPirces: %w", err)
-		}
-
-		var res decimal.Big
-		ctx.Sub(&res, &nextPrices[idx], &cap)
-		if err := ctx.Err(); err != nil {
-			return zeroDec, fmt.Errorf("failed to compute nextPrices[idx] - cap: %w", err)
-		}
-
-		return res, nil
-	}
-
-	deltaSharesCap, err := Bisect(lo, hi, *decimal.New(1, numeric.Scale), f)
-	if err != nil {
-		return zeroDec, fmt.Errorf("Bisect failed: %w", err)
-	}
-
-	// Compute corresponding spend
-	baseCost, err := Cost(q, alpha)
-	if err != nil {
-		return zeroDec, err
-	}
-
-	qNext = make([]decimal.Big, len(q))
-	copy(qNext, q)
-
-	ctx.Add(&qNext[idx], &q[idx], &deltaSharesCap)
-	if err := ctx.Err(); err != nil {
-		return zeroDec, fmt.Errorf("failed to compute q[idx] + deltaSharesCap: %w", err)
-	}
-
-	nextCost, err := Cost(qNext, alpha)
-	if err != nil {
-		return zeroDec, err
-	}
-
-	var maxSpend decimal.Big
-	ctx.Sub(&maxSpend, &nextCost, &baseCost)
-	if err := ctx.Err(); err != nil {
-		return zeroDec, fmt.Errorf("failed to compute nextCost - baseCost: %w", err)
-	}
-
-	return maxSpend, nil
 }
 
 func PricesDec(q []decimal.Big, alpha decimal.Big) ([]decimal.Big, error) {
@@ -606,6 +486,7 @@ func PossibleGainFeePriceForBuy(qBD []*numeric.BigDecimal, idx int, alphaBD, fee
 	fee := feeBD.Big
 	alpha := alphaBD.Big
 	capPrice := capBD.Big
+
 	q := make([]decimal.Big, 0, len(qBD))
 	for _, qiBD := range qBD {
 		q = append(q, qiBD.Big)
@@ -622,17 +503,8 @@ func PossibleGainFeePriceForBuy(qBD []*numeric.BigDecimal, idx int, alphaBD, fee
 		return false, nil, nil, nil, fmt.Errorf("failed to compute availBudget: %w", err)
 	}
 
-	maxSpendCap, err := MaxSpendToPriceCap(q, idx, alpha, capPrice)
-	if err != nil {
-		return false, nil, nil, nil, fmt.Errorf("failed to compute MaxSharesToPriceCap: %w", err)
-	}
-
-	if maxSpendCap.Cmp(&availBudget) <= 0 {
-		return false, nil, nil, nil, nil
-	}
-
 	// maxShares = gain
-	gainFromBudget, err := GetMaxSharesCanBuy(q, idx, alpha, availBudget)
+	gainFromBudget, err := GetMaxSharesCanBuy(true, q, idx, alpha, availBudget)
 
 	if err != nil {
 		return false, nil, nil, nil, fmt.Errorf("failed to Quote: %w", err)
@@ -640,6 +512,24 @@ func PossibleGainFeePriceForBuy(qBD []*numeric.BigDecimal, idx int, alphaBD, fee
 
 	if gainFromBudget.Sign() <= 0 {
 		return false, nil, nil, nil, errors.New("quoted gain is not positive")
+	}
+
+	// Check if after buying gainFromBudget shares, the price is < capPrice
+	qNext := make([]decimal.Big, len(q))
+	copy(qNext, q)
+	ctx.Add(&qNext[idx], &q[idx], &gainFromBudget)
+	if err := ctx.Err(); err != nil {
+		return false, nil, nil, nil, fmt.Errorf("failed to compute qNext[idx]: %w", err)
+	}
+
+	nextPrices, err := PricesDec(qNext, alpha)
+	if err != nil {
+		return false, nil, nil, nil, fmt.Errorf("failed to compute nextPrices: %w", err)
+	}
+
+	if nextPrices[idx].Cmp(&capPrice) >= 0 {
+		// Price goes above cap after buy, can't buy
+		return false, nil, nil, nil, nil
 	}
 
 	// avg price

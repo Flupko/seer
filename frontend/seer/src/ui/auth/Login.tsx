@@ -5,6 +5,7 @@ import { SubmitHandler, useForm } from "react-hook-form";
 import Password from "../form/Password";
 import Providers from "./Providers";
 
+import { useWebSocket } from "@/app/WsProvider";
 import * as api from "@/lib/api";
 import { LoginFormValues, LoginSchema } from "@/lib/definitions";
 import { useModalStore } from "@/lib/stores/modal";
@@ -18,6 +19,8 @@ import FormField from "../form/FormField";
 export default function Login() {
 
     const router = useRouter();
+
+    const ws = useWebSocket();
 
     const {
         register,
@@ -36,6 +39,7 @@ export default function Login() {
     const mutation = useMutation({
         mutationFn: api.login,
         onSuccess: () => {
+            ws?.disonnect();
             queryClient.invalidateQueries({ queryKey: ['user'] });
             router.push("/");
             closeModal();

@@ -1,7 +1,7 @@
 // stores/modalStore.ts
 import { create } from 'zustand';
 
-export type ModalType = "auth" | "profileCompletion" | "changePassword" | "setPassword" | null;
+export type ModalType = "auth" | "profileCompletion" | "changePassword" | "setPassword" | "user" | null;
 
 interface ModalStore {
     currentModal: ModalType;

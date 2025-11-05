@@ -1,4 +1,4 @@
-import { BalanceSchema, CategorySchema, ChangePasswordPayload, Currency, LoginFormValues, MarketSearch, MarketViewSchema, MetadataSchema, PlaceBet, ProfileCompletionFormValues, RegisterFormValues, SessionsSchema, SetPasswordPayload, UpdateUserPreferences, User, UserPreferencesSchema, UserSchema } from "@/lib/definitions";
+import { BalanceSchema, CashoutBet, CategorySchema, ChangePasswordPayload, Currency, LoginFormValues, MarketSearch, MarketViewSchema, MetadataSchema, PlaceBet, ProfileCompletionFormValues, RegisterFormValues, SessionsSchema, SetPasswordPayload, UpdateUserPreferences, User, UserBetSearch, UserBetsResSchema, UserPreferencesSchema, UserProfile, UserProfileSchema, UserSchema } from "@/lib/definitions";
 import z from "zod";
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || ""
@@ -90,6 +90,7 @@ export const getUser = async (cookie?: string): Promise<User | null> => {
   const result = UserResponseSchema.safeParse(data);
 
   if (!result.success) {
+    console.log(result.error);
     throw new Error("Invalid user data");
   }
 
@@ -319,6 +320,7 @@ export const searchMarket = async (search: MarketSearch) => {
   // Safe parse
   const result = MarketSearchResSchema.safeParse(data);
   if (!result.success) {
+    console.error(result.error);
     throw new Error("Invalid market search data");
   }
 
@@ -357,6 +359,7 @@ export const getMarket = async (marketId: string) => {
   const data = await response.json();
 
   if (!response.ok) {
+    console.error("Failed to fetch market:", data);
     const error: APIError = {
       message: data.message || "Failed to fetch market",
       errors: data.errors,
@@ -366,6 +369,7 @@ export const getMarket = async (marketId: string) => {
 
   const result = MarketViewSchema.safeParse(data);
   if (!result.success) {
+    console.error(result.error);
     throw new Error("Invalid market data");
   }
 
@@ -414,6 +418,82 @@ export const postBet = async (placeBet: PlaceBet) => {
       errors: data.errors,
     };
 
+    throw error;
+  }
+
+  return null;
+}
+
+export const getUserProfile = async (username: string): Promise<UserProfile> => {
+  const response = await fetch(`${API_BASE_URL}/user/profile/${username}`, {
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    const error: APIError = {
+      message: data.message || "Failed to fetch user profile",
+    };
+    throw error;
+  }
+
+  const result = UserProfileSchema.safeParse(data);
+  if (!result.success) {
+    console.error(result.error);
+    throw new Error("Invalid user profile data");
+  }
+
+  return result.data;
+}
+
+export const getUserBets = async (search: UserBetSearch) => {
+  const params = new URLSearchParams();
+  if (search.status) params.append("status", search.status);
+  if (search.marketId) params.append("marketId", search.marketId);
+  params.append("sort", search.sort);
+  params.append("sortDir", search.sortDir);
+  params.append("pageSize", search.pageSize.toString());
+  params.append("page", search.page.toString());
+  const response = await fetch(`${API_BASE_URL}/my/bets?${params.toString()}`, {
+    credentials: "include",
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    const error: APIError = {
+      message: data.message || "Failed to fetch user bets",
+      errors: data.errors,
+    };
+    throw error;
+  }
+
+  const result = UserBetsResSchema.safeParse(data);
+  if (!result.success) {
+    console.error(result.error);
+    throw new Error("Invalid user bets data");
+  }
+
+  return result.data
+
+}
+
+export const cashoutBet = async (cashoutBet: CashoutBet) => {
+  const response = await fetch(`${API_BASE_URL}/market/cashout`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    credentials: "include",
+    body: JSON.stringify(cashoutBet),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    const error: APIError = {
+      message: data.message || "Failed to cashout bet",
+      errors: data.errors,
+    };
     throw error;
   }
 

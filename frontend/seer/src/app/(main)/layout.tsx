@@ -1,21 +1,18 @@
 import { getFeaturedCategories } from "@/lib/api";
 import BetsLive from "@/ui/bet/bets_live/BetsLive";
 import MainWrapper from "@/ui/MainWrapper";
-import CategoriesMenu from "@/ui/markets/home/categories/CategoriesMenu";
 
-export default async function Layout({ children, searchParams }: { children: React.ReactNode, searchParams: Promise<{ category?: string, sort?: string }> }) {
-
+export default async function Layout({ children }: { children: React.ReactNode }) {
     const categories = await getFeaturedCategories();
 
     return (
         <>
-            <MainWrapper>
-                <CategoriesMenu categories={categories} />
-                {children}
-                <div className="mt-8">
+            {children}
+            <div className="pt-5 md:pt-8">
+                <MainWrapper>
                     <BetsLive />
-                </div>
-            </MainWrapper>
+                </MainWrapper>
+            </div>
         </>
-    )
+    );
 }

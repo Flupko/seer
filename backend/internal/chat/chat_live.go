@@ -93,8 +93,8 @@ func NewChatManager(rdb *redis.Client, db *pgxpool.Pool, logger *slog.Logger) *C
 	redis.call("HSET", rate_user_key, "last_refill_time", now_time_ms, "current_tokens", tokens)
 
 	-- add the new message
-	redis.call("LPUSH", list_messages_key, message)
-	redis.call("LTRIM", list_messages_key, 0, max_len - 1)
+	redis.call("RPUSH", list_messages_key, message)
+	redis.call("LTRIM", list_messages_key, -max_len, -1)
 
 	return 1
 	`
@@ -107,8 +107,8 @@ func NewChatManager(rdb *redis.Client, db *pgxpool.Pool, logger *slog.Logger) *C
 }
 
 func (cm *ChatManager) PrepopulateChatRooms(ctx context.Context) error {
-	// First retrieve all chat rooms
 
+	// First retrieve all chat rooms
 	rows, err := cm.db.Query(ctx, `SELECT id, label, slug FROM chat_rooms`)
 	if err != nil {
 		return fmt.Errorf("failed to query chat rooms: %w", err)
@@ -147,7 +147,7 @@ func (cm *ChatManager) prepopulateChatRoom(ctx context.Context, c *Chat) error {
 	JOIN users u ON cm.user_id = u.id
 	JOIN chat_rooms cr ON cm.chat_id = cr.id
 	WHERE cm.chat_id = $1
-	ORDER BY created_at DESC
+	ORDER BY created_at ASC
 	LIMIT $2`
 
 	rows, err := cm.db.Query(ctx, query, c.ID, maxLenChat)
@@ -222,6 +222,12 @@ func (cm *ChatManager) SendMessage(ctx context.Context, user *repos.MinimalUser,
 		Type:      "user",
 	}
 
+	chatMsg.User.ID = user.ID
+	chatMsg.User.Username = user.Username
+	if user.ProfileImageKey.Valid {
+		chatMsg.User.ProfileImageKey = user.ProfileImageKey.String
+	}
+
 	data, err := json.Marshal(chatMsg)
 	if err != nil {
 		return false, fmt.Errorf("failed to marshal chat msg: %w", err)
@@ -253,8 +259,9 @@ func (cm *ChatManager) SendMessage(ctx context.Context, user *repos.MinimalUser,
 		CreatedAt: chatMsg.CreatedAt,
 		Type:      chatMsg.Type,
 		User: ws.UserState{
-			ID:       user.ID,
-			Username: user.Username,
+			ID:              user.ID,
+			Username:        user.Username,
+			ProfileImageKey: user.ProfileImageKey.String,
 		},
 	}
 
@@ -262,13 +269,18 @@ func (cm *ChatManager) SendMessage(ctx context.Context, user *repos.MinimalUser,
 		wsPayload.User.ProfileImageKey = user.ProfileImageKey.String
 	}
 
-	wsBuf, err := utils.WsMessage(wsChatRoom, wsPayload)
+	wsMsg, err := utils.WsMessage(ws.ChatUpdate, wsPayload)
+	if err != nil {
+		return false, fmt.Errorf("failed to marshall websocket message: %w", err)
+	}
+
+	wsBuf, err := json.Marshal(wsMsg)
 	if err != nil {
 		return false, fmt.Errorf("failed to marshall websocket message: %w", err)
 	}
 
 	if err := cm.rdb.Publish(ctx, fmt.Sprintf("%s%s", ws.RoomPubSubPrefix, wsChatRoom), wsBuf).Err(); err != nil {
-		return false, fmt.Errorf("failed to publish latest bet: %w", err)
+		return false, fmt.Errorf("failed to publish message: %w", err)
 	}
 
 	go func() {
@@ -305,12 +317,13 @@ func (cm *ChatManager) GetLastMessagesChat(ctx context.Context, chatSlug string)
 		case errors.Is(err, redis.Nil):
 			return nil, ErrChatRoomNotFound
 		default:
-			return nil, fmt.Errorf("failed to check chat existence")
+			return nil, fmt.Errorf("failed to check chat existence: %w", err)
 		}
 	}
 
 	cacheKeyChatList := buildCacheKeyChatList(chatSlug)
 
+	// First oldest to newest
 	vals, err := cm.rdb.LRange(ctx, cacheKeyChatList, 0, -1).Result()
 
 	if err != nil {

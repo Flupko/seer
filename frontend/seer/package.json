@@ -13,6 +13,7 @@
     "@number-flow/react": "^0.5.10",
     "@tanstack/react-query": "^5.90.2",
     "@tanstack/react-query-devtools": "^5.90.2",
+    "crypto": "^1.0.1",
     "decimal.js": "^10.6.0",
     "install": "^0.13.0",
     "lucide-react": "^0.544.0",
@@ -22,6 +23,7 @@
     "react-dom": "19.1.0",
     "react-hook-form": "^7.63.0",
     "react-use-measure": "^2.1.7",
+    "recharts": "^3.3.0",
     "usehooks-ts": "^3.1.1",
     "zod": "^4.1.11",
     "zustand": "^5.0.8"

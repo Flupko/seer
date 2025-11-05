@@ -3,6 +3,24 @@ import { z } from "zod";
 import { pricesForMarket } from "./lslmsr/lslmsr";
 
 
+// Custom Decimal Schema
+export const DecimalSchema = z
+  .union([
+    z.string().trim().min(1), // allow strings
+    z.number(), // allow JS numbers
+    z.instanceof(Decimal),// already a Decimal
+  ])
+  .transform((val, ctx) => {
+    try {
+      if (val instanceof Decimal) return val;
+      return new Decimal(val as string | number);
+    } catch {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid decimal input" });
+      return z.NEVER;
+    }
+  });
+
+
 const usernameSchema = z
   .string()
   .min(3, { message: "Username must be at least 3 characters" })
@@ -29,10 +47,29 @@ export const UserSchema = z.object({
   email: emailSchema,
   username: usernameSchema,
   profileImageUrl: z.url().optional(),
+  totalWagered: DecimalSchema,
+  createdAt: z.coerce.date(),
   status: statusSchema,
 });
 
 export type User = z.infer<typeof UserSchema>;
+
+// type userProfileRes struct {
+// 	ID              uuid.UUID `json:"id"`
+// 	Username        string    `json:"username"`
+// 	ProfileImageKey string    `json:"profileImageKey,omitempty"`
+// 	CreatedAt       time.Time `json:"createdAt"`
+// }
+
+export const UserProfileSchema = z.object({
+  id: z.uuid(),
+  username: z.string(),
+  profileImageKey: z.url().optional(),
+  totalWagered: DecimalSchema,
+  createdAt: z.coerce.date(),
+});
+
+export type UserProfile = z.infer<typeof UserProfileSchema>;
 
 export const RegisterSchema = z.object({
   username: usernameSchema,
@@ -121,7 +158,7 @@ export type Category = z.infer<typeof CategorySchema>;
 
 
 export const MarketSort = z.enum(['trending', 'volume', 'newest', 'endingSoon']);
-export const MarketStatus = z.enum(['active', 'resolved']);
+export const MarketStatus = z.enum(['active', 'resolved', 'pending', 'paused']);
 
 export const MarketSearchSchema = z.object({
   query: z.string().min(3).max(50).optional(),
@@ -132,24 +169,22 @@ export const MarketSearchSchema = z.object({
   page: z.number().int().min(1).default(1),
 });
 
-// Custom Decimal Schema
-export const DecimalSchema = z
-  .union([
-    z.string().trim().min(1), // allow strings
-    z.number(), // allow JS numbers
-    z.instanceof(Decimal),// already a Decimal
-  ])
-  .transform((val, ctx) => {
-    try {
-      if (val instanceof Decimal) return val;
-      return new Decimal(val as string | number);
-    } catch {
-      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid decimal input" });
-      return z.NEVER;
-    }
-  });
+
 
 export type MarketSearch = z.infer<typeof MarketSearchSchema>;
+
+export const PriceChartDataPointSchema = z.object({
+  date: z.coerce.date(),
+  timestamp: z.number().int(),
+  price: DecimalSchema,
+});
+
+export type PriceChartDataPoint = z.infer<typeof PriceChartDataPointSchema>;
+
+export const PriceChartSchema = z.object({
+  timeframe: z.enum(["24h", "7d", "30d", "all"]),
+  prices: z.array(PriceChartDataPointSchema),
+});
 
 export const OutcomeSchema = z.object({
   id: z.number(),
@@ -157,9 +192,19 @@ export const OutcomeSchema = z.object({
   quantity: DecimalSchema,
   position: z.number().int(),
   price: DecimalSchema.default(new Decimal(0)),
+  priceCharts: z.array(PriceChartSchema).optional(),
 });
 
 export type Outcome = z.infer<typeof OutcomeSchema>;
+
+export const MarketResolutionSchema = z.object({
+  id: z.number().optional(),
+  marketId: z.uuid(),
+  winningOutcomeId: z.number().int(),
+  createdAt: z.coerce.date(),
+});
+
+export type MarketResolution = z.infer<typeof MarketResolutionSchema>;
 
 export const MarketViewSchema = z.object({
   id: z.uuid(),
@@ -167,19 +212,24 @@ export const MarketViewSchema = z.object({
   description: z.string().nullable(),
   imgKey: z.string().optional(),
   slug: z.string(),
-  closeTime: z.string().optional(),
+  closeTime: z.coerce.date().optional(),
   outcomeSort: z.enum(['price', 'position']),
   alpha: DecimalSchema,
   fee: DecimalSchema,
   capPrice: DecimalSchema,
+  totalVolume: DecimalSchema,
   categories: z.array(CategorySchema),
   outcomes: z.array(OutcomeSchema),
+  status: MarketStatus,
+  resolution: MarketResolutionSchema.optional(),
   version: z.number().int().default(0),
 }).transform((market) => {
   // Compute prices for each outcome
   pricesForMarket(market);
   return market
 });
+
+
 
 export type MarketView = z.infer<typeof MarketViewSchema>;
 
@@ -215,6 +265,14 @@ export const PlaceBetSchema = z.object({
 
 export type PlaceBet = z.infer<typeof PlaceBetSchema>;
 
+export const CashoutBetSchema = z.object({
+  betId: z.uuid(),
+  minWantedGain: DecimalSchema,
+  idempotencyKey: z.string().min(1).max(36),
+});
+
+export type CashoutBet = z.infer<typeof CashoutBetSchema>;
+
 
 
 export const sortOptions = [
@@ -226,9 +284,62 @@ export const sortOptions = [
 
 export const statusOptions = [
   { value: "active", element: "Active" },
+  { value: "pending", element: "Pending" },
   { value: "resolved", element: "Resolved" },
 ];
 
 export const QuoteFormSchema = z.object({
   wagerUsd: z.number().min(1, "Wager must be at least $1").max(10000, "Wager must be at most $10,000"),
 })
+
+
+// type userBetSearchRes struct {
+// 	ID          uuid.UUID           `json:"id"`
+// 	Status      market.BetStatus    `json:"betStatus"`
+// 	PricePaid   *numeric.BigDecimal `json:"pricePaid"`
+// 	Payout      *numeric.BigDecimal `json:"payout"`
+// 	AvgPrice    *numeric.BigDecimal `json:"avgPrice"`
+// 	MarketID    uuid.UUID           `json:"marketId"`
+// 	MarketName  string              `json:"marketName"`
+// 	OutcomeID   int64               `json:"outcomesId"`
+// 	OutcomeName string              `json:"outcomeName"`
+// 	PlacedAt    time.Time           `json:"placeAt"`
+// }
+
+export const BetStatusSchema = z.enum(['active', 'won', 'lost', 'cashedOut']);
+export type BetStatus = z.infer<typeof BetStatusSchema>;
+
+export const BetSchema = z.object({
+  id: z.uuid(),
+  status: BetStatusSchema,
+  pricePaid: DecimalSchema,
+  payout: DecimalSchema,
+  cashedOut: DecimalSchema.optional(),
+  avgPrice: DecimalSchema,
+  marketId: z.uuid(),
+  marketName: z.string(),
+  marketImgKey: z.string().optional(),
+  outcomeId: z.number().int(),
+  outcomeName: z.string(),
+  placedAt: z.coerce.date(),
+});
+
+export type Bet = z.infer<typeof BetSchema>;
+
+export const UserBetsResSchema = z.object({
+  bets: z.array(BetSchema),
+  metadata: MetadataSchema,
+});
+
+export type UserBetsRes = z.infer<typeof UserBetsResSchema>;
+
+export const UserBetSearchSchema = z.object({
+  marketId: z.uuid().optional(),
+  status: z.union([BetStatusSchema, z.literal('resolved')]).optional(), // Add 'resolved' as alias for 'won', 'lost', 'cashedOut'
+  pageSize: z.number().int().min(4).max(20).default(20),
+  page: z.number().int().min(1).default(1),
+  sort: z.enum(['placedAt', 'wager', 'payout', 'event']).default('placedAt'),
+  sortDir: z.enum(['asc', 'desc']).default('desc'),
+});
+
+export type UserBetSearch = z.infer<typeof UserBetSearchSchema>;

@@ -1,13 +1,20 @@
 @import "tailwindcss";
 
+html {
+  font-size: 16px;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
 body {
   margin: 0;
   padding: 0;
-  background-color: var(--color-gray-scale-black);
+  background-color: var(--color-grayscale-black);
   color: white;
   border: none;
   box-sizing: border-box;
-  scrollbar-gutter: stable both-edges;
+  height: 100%;
+  width: 100%;
 }
 
 .font-numbers {
@@ -25,6 +32,7 @@ body {
   --color-blue-pressed:#004386;
 
   --color-error: #f1323e;
+  --color-success: #3dd179;
 
   --primary-blue-filter: brightness(0) saturate(100%) invert(54%) sepia(98%) saturate(1675%) hue-rotate(186deg) brightness(100%) contrast(96%);
   --neon-blue-filter: brightness(0) saturate(100%) invert(34%) sepia(23%) saturate(7463%) hue-rotate(197deg) brightness(103%) contrast(107%);
@@ -83,6 +91,7 @@ body {
   --color-blue-pressed:#004386;
 
   --color-error: #f1323e;
+  --color-success: #3dd179;
 
   --primary-blue-filter: brightness(0) saturate(100%) invert(54%) sepia(98%) saturate(1675%) hue-rotate(186deg) brightness(100%) contrast(96%);
   --neon-blue-filter: brightness(0) saturate(100%) invert(34%) sepia(23%) saturate(7463%) hue-rotate(197deg) brightness(103%) contrast(107%);
@@ -149,6 +158,13 @@ body {
 .hide-scrollbar {
   -ms-overflow-style: none;  /* IE and Edge */
   scrollbar-width: none;  /* Firefox */
+}
+
+/* Styled scrollbar */
+.scrollbar-light {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-gray-900) transparent;
+  scrollbar-gutter: stable both-edges;
 }
 
 input::-webkit-outer-spin-button,

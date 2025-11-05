@@ -61,6 +61,7 @@ func (h *AdminMarketHandler) CreateMarket(c echo.Context) error {
 	m := &market.Market{
 		Name:        r.Name,
 		Description: r.Description,
+		Slug:        r.Slug,
 		Currency:    r.Currency,
 		ImgKey:      r.ImgKey,
 		Alpha:       r.Alpha,

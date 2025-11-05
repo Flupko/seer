@@ -127,7 +127,6 @@ func (h *Hub) cleanupOnShutdown() {
 	for c := range h.clients {
 		delete(h.clientRooms, c)
 		delete(h.clients, c)
-		close(c.send)
 	}
 }
 
@@ -207,7 +206,6 @@ func (h *Hub) handleUnregister(c *Client) {
 
 	delete(h.clientRooms, c)
 	delete(h.clients, c)
-	close(c.send)
 }
 
 func (h *Hub) Subscribe(c *Client, roomID string) {
@@ -296,6 +294,9 @@ func (h *Hub) handleBroadcast(br broadcastReq) {
 
 	for c := range room.clients {
 		select {
+		case <-c.Ctx.Done():
+			// client already cancelled, treat as dropped
+			dropped = append(dropped, c)
 		case c.send <- br.payload:
 		default:
 			dropped = append(dropped, c)

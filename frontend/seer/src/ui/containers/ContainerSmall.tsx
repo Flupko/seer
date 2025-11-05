@@ -1,8 +1,8 @@
 
 
-export default function ContainerSmall({ children }: { children?: React.ReactNode }) {
+export default function ContainerSmall({ children, className }: { children?: React.ReactNode, className?: string }) {
     return (
-        <div className="bg-gray-800 rounded-md p-6">
+        <div className={`bg-gray-800 rounded-lg p-6 ${className}`}>
             {children}
         </div>
     )

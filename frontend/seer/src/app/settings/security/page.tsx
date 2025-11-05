@@ -6,7 +6,7 @@ import { useUserQuery } from "@/lib/queries/useUserQuery";
 import { useModalStore } from "@/lib/stores/modal";
 import { timeSince } from "@/lib/utils/date";
 import ContainerSmall from "@/ui/containers/ContainerSmall";
-import MenuInput from "@/ui/menu_small_vertical/MenuVertical";
+import MenuVertical from "@/ui/menu_small_vertical/MenuVertical";
 import { TableCell, TableHead, TableHeading, TableRow } from "@/ui/Table";
 import { toastStyled } from "@/ui/Toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -31,6 +31,8 @@ export default function SecurityPage() {
     })
 
     const { data: user } = useUserQuery()
+
+
 
 
     return (
@@ -101,7 +103,7 @@ export default function SecurityPage() {
             <Container title="Sessions">
 
                 <div className="w-40 mb-2">
-                    <MenuInput leftPart={""} value={showInactive ? "all" : "active"} onChange={(v) => setShowInactive(v === "all")}
+                    <MenuVertical leftPart={""} value={showInactive ? "all" : "active"} onChange={(v) => setShowInactive(v === "all")}
                         choices={[{ value: "all", element: "All" }, { value: "active", element: "Active" }]} />
                 </div>
 

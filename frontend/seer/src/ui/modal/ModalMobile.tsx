@@ -1,5 +1,6 @@
 import { useModalStore } from "@/lib/stores/modal";
 import { AnimatePresence, LayoutGroup, motion, useDragControls } from "motion/react";
+import { useRef } from "react";
 import { modalComponents } from "./Modal";
 
 export default function MobileDrawer() {
@@ -11,6 +12,12 @@ export default function MobileDrawer() {
     const ModalContent = currentModal ? modalComponents[currentModal].content : null;
     const height = currentModal ? modalComponents[currentModal].height : null
     const controls = useDragControls();
+
+    const closeRef = useRef<{ handleClose: () => void }>(null);
+    const handleClose = () => {
+        closeRef.current?.handleClose();
+        closeModal();
+    }
 
     return (
         <LayoutGroup id={"layout-mobile"}>
@@ -24,7 +31,7 @@ export default function MobileDrawer() {
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
-                            onClick={closeModal}
+                            onClick={handleClose}
                         />
 
                         {/* Sheet */}
@@ -42,7 +49,7 @@ export default function MobileDrawer() {
                             dragListener={false}
                             onDragEnd={(_, info) => {
                                 const shouldClose = info.offset.y > 90 || info.velocity.y > 200;
-                                if (shouldClose) closeModal();
+                                if (shouldClose) handleClose();
                             }}
                             onClick={(e) => e.stopPropagation()}
                         >
@@ -60,7 +67,7 @@ export default function MobileDrawer() {
 
                             {/* Scrollable content */}
                             <div className="min-h-0 overflow-y-auto overscroll-contain">
-                                {ModalContent && <ModalContent {...modalData} />}
+                                {ModalContent && <ModalContent {...modalData} ref={closeRef} />}
                             </div>
                         </motion.div>
                     </div>

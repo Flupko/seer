@@ -24,6 +24,7 @@ export type OutcomeUpdate = z.infer<typeof OutcomeUpdateSchema>;
 export const MarketUpdateSchema = z.object({
     marketID: z.uuid(),
     marketVersion: z.number().int(),
+    totalVolume: DecimalSchema,
     outcomes: z.array(OutcomeUpdateSchema),
 });
 export type MarketUpdate = z.infer<typeof MarketUpdateSchema>;
@@ -42,6 +43,8 @@ export const ChatMessageSchema = z.object({
     type: z.enum(['user', 'system']),
     user: WsUserSchema,
 });
+
+export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 
 
 export const BetUpdateSchema = z.object({
@@ -64,6 +67,9 @@ export const OnlineUpdateSchema = z.object({
     usersOnlineCount: z.number().int(),
 });
 export type OnlineUpdate = z.infer<typeof OnlineUpdateSchema>;
+
+export const EmptyPayloadSchema = z.object({}).nullable();
+export type EmptyPayload = z.infer<typeof EmptyPayloadSchema>;
 
 export const WSErrorSchema = z.object({
     error: z.string(),

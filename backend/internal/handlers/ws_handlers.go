@@ -81,13 +81,20 @@ func (h WsHandler) HandleGetMarketState(c *ws.Client, reqPayload string) {
 
 	ms, err := h.msm.GetMarketState(ctx, p.MarketID)
 	if err != nil {
-		h.sendError(c, ErrCodeInternalError)
+		switch {
+		case errors.Is(err, market.ErrMarketNotFound):
+			h.sendError(c, ErrCodeInvalidMarkets)
+		default:
+			h.sendError(c, ErrCodeInternalError)
+
+		}
 		return
 	}
 
 	wsPayload := ws.MarketUpdate{
-		ID:      ms.ID,
-		Version: ms.Version,
+		ID:          ms.ID,
+		Version:     ms.Version,
+		TotalVolume: ms.Volume,
 	}
 
 	for i := range len(ms.QVec) {
@@ -243,7 +250,6 @@ func (h *WsHandler) HandleJoinChatRoom(c *ws.Client, reqPayload string) {
 		c.Disconnect()
 		return
 	}
-
 	msgs, err := h.cm.GetLastMessagesChat(ctx, p.ChatSlug)
 	if err != nil {
 		fmt.Println("error getting last messages:", err)
@@ -259,7 +265,7 @@ func (h *WsHandler) HandleJoinChatRoom(c *ws.Client, reqPayload string) {
 	msgsAny := make([]any, 0, len(msgs))
 	wsChatRoom := chat.BuildWSChatRoom(p.ChatSlug)
 
-	for i, m := range msgs {
+	for _, m := range msgs {
 
 		wsPayload := ws.ChatMessage{
 			ID:        m.ID,
@@ -274,13 +280,13 @@ func (h *WsHandler) HandleJoinChatRoom(c *ws.Client, reqPayload string) {
 			ProfileImageKey: m.User.ProfileImageKey,
 		}
 
-		wsBuf, err := utils.WsMessage(wsChatRoom, wsPayload)
+		wsBuf, err := utils.WsMessage(ws.ChatUpdate, wsPayload)
 		if err != nil {
 			h.sendError(c, ErrCodeInternalError)
 			return
 		}
 
-		msgsAny[i] = wsBuf
+		msgsAny = append(msgsAny, wsBuf)
 	}
 
 	if len(msgsAny) > 0 {
@@ -358,6 +364,7 @@ func (h *WsHandler) HandleSendMessage(c *ws.Client, reqPayload string) {
 		case errors.Is(err, chat.ErrChatRoomNotFound):
 			h.sendError(c, ErrCodeChatRoomNotFound)
 		default:
+			fmt.Println("internal err send", err)
 			h.sendError(c, ErrCodeInternalError)
 		}
 		return
@@ -365,7 +372,7 @@ func (h *WsHandler) HandleSendMessage(c *ws.Client, reqPayload string) {
 
 	wsChatRoom := chat.BuildWSChatRoom(p.ChatSlug)
 	if sent {
-		wsAckMsg := ws.Message{Type: wsChatRoom + ":ack"}
+		wsAckMsg := ws.Message{Type: "ack:" + wsChatRoom}
 		if buf, err := json.Marshal(wsAckMsg); err == nil {
 			c.Send(buf)
 		} else {
@@ -373,7 +380,7 @@ func (h *WsHandler) HandleSendMessage(c *ws.Client, reqPayload string) {
 		}
 	} else {
 		// Rate limited, inform client
-		wsRateMsg := ws.Message{Type: wsChatRoom + ":rate"}
+		wsRateMsg := ws.Message{Type: "rate:" + wsChatRoom}
 		if buf, err := json.Marshal(wsRateMsg); err == nil {
 			c.Send(buf)
 		} else {

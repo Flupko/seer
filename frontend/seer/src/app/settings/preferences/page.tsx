@@ -5,7 +5,7 @@ import { UpdateUserPreferences } from "@/lib/definitions";
 import { OddsFormat } from "@/lib/odds";
 import { usePrefs } from "@/lib/stores/prefs";
 import Loader from "@/ui/loader/Loader";
-import MenuInput from "@/ui/menu_small_vertical/MenuVertical";
+import MenuVertical from "@/ui/menu_small_vertical/MenuVertical";
 import Switch from "@/ui/switch/Switch";
 import { toastStyled } from "@/ui/Toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -68,7 +68,7 @@ export default function SettingsPage() {
                         </div>
 
                         <div className="w-full sm:w-40">
-                            <MenuInput leftPart={""} value={oddsFormat} onChange={(v) => setOddsFormat(v as OddsFormat)}
+                            <MenuVertical leftPart={""} value={oddsFormat} onChange={(v) => setOddsFormat(v as OddsFormat)}
                                 choices={[
                                     { value: "decimal", element: "Decimal" },
                                     { value: "american", element: "American" },

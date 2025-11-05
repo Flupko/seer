@@ -1,6 +1,7 @@
 import { useModalStore } from '@/lib/stores/modal';
 import { X } from "lucide-react";
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
+import { useRef } from 'react';
 import ToolTip from "../ToolTip";
 import { modalComponents } from "./Modal";
 
@@ -12,8 +13,14 @@ export default function ModalDesktop() {
     const closeModal = useModalStore((state) => state.closeModal);
 
     const ModalContent = currentModal ? modalComponents[currentModal].content : null;
-    const height = currentModal ? modalComponents[currentModal].height : null
-    const width = currentModal ? modalComponents[currentModal].desktopWidth : null
+    const height = currentModal ? modalComponents[currentModal].height : null;
+    const width = currentModal ? modalComponents[currentModal].desktopWidth : null;
+
+    const closeRef = useRef<{ handleClose: () => void }>(null);
+    const handleClose = () => {
+        closeRef.current?.handleClose();
+        closeModal();
+    }
 
     return (
         <LayoutGroup id={"layout-desktop"}>
@@ -26,7 +33,7 @@ export default function ModalDesktop() {
                         exit={{ opacity: 0 }}
                         transition={{ duration: 0.17 }}
                         className="fixed left-0 top-0 bottom-0 right-0 z-[10000] bg-black/25 flex justify-center items-center"
-                        onClick={closeModal}
+                        onClick={handleClose}
                     >
 
                         <motion.div className={`flex flex-col relative max-h-[calc(100vh-20px)] w-full ${width}`} key={currentModal + 'desktop'}
@@ -37,7 +44,7 @@ export default function ModalDesktop() {
                             onClick={(e) => e.stopPropagation()}>
 
                             <div className="justify-end align-center top-2 z-50 right-1 absolute flex">
-                                <ToolTip Icon={X} onClick={closeModal} />
+                                <ToolTip Icon={X} onClick={handleClose} />
                             </div>
 
                             <div className="overflow-auto">
@@ -53,7 +60,7 @@ export default function ModalDesktop() {
                                             className={`bg-gray-900 w-full ${height} rounded-lg relative mx-auto`}
                                         >
 
-                                            {ModalContent && <ModalContent {...modalData} />}
+                                            {ModalContent && <ModalContent {...modalData} ref={closeRef} />}
                                         </motion.div>
                                     </div>
 

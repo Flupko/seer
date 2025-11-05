@@ -23,19 +23,6 @@ function sanitizeForEditing(raw: string) {
         }
     }
 
-    // Handle empty decimal separator cases
-    if (out && (out[0] == "." || out[0] === ",")) return out;
-    if (out.startsWith("0.") || out.startsWith("0,")) {
-        return out; // keep "0." and "0," as is
-    }
-
-    // Remove unnecessary leading zeros
-    if (out.startsWith("0") && out.length > 1) {
-        // Remove all leading zeros
-        const withoutLeadingZeros = out.replace(/^0+/, "");
-        return withoutLeadingZeros || "0"; // if all were zeros, return "0"
-    }
-
     return out;
 }
 
@@ -114,7 +101,7 @@ export default function PriceInput({
     defaultValue,
     onValueChange,
     ...rest
-}: PriceInputProps) {
+}: PriceInputProps & { ref: React.Ref<HTMLInputElement> | null }) {
 
     const [inner, setInner] = useState<string>(() => {
         const init = defaultValue != null ? String(defaultValue) : "";
@@ -127,7 +114,19 @@ export default function PriceInput({
         if (!inner) return;
 
         const normalized = inner.replace(",", ".");
-        const roundedNorm = roundHalfDownStr(normalized, maxDecimals);
+
+        // Remove unnecessary leading zeros
+        const parts = normalized.split(".");
+        let intPart = parts[0];
+        const fracPart = parts[1] || "";
+
+        // Remove leading zeros in integer part
+        intPart = intPart.replace(/^0+/, "");
+        if (intPart === "") intPart = "0";
+
+        const normalizedNoLeading = fracPart ? `${intPart}.${fracPart}` : intPart;
+
+        const roundedNorm = roundHalfDownStr(normalizedNoLeading, maxDecimals);
         setInner(roundedNorm);
     }
 

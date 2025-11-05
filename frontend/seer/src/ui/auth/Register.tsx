@@ -10,6 +10,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import FormField from "../form/FormField";
 
+import { useWebSocket } from "@/app/WsProvider";
 import * as api from "@/lib/api";
 import { useModalStore } from "@/lib/stores/modal";
 import { useRouter } from "next/navigation";
@@ -33,10 +34,13 @@ export default function Register() {
     const queryClient = useQueryClient();
     const closeModal = useModalStore((state) => state.closeModal);
 
+    const ws = useWebSocket();
+
 
     const mutation = useMutation({
         mutationFn: api.register,
         onSuccess: () => {
+            ws?.disonnect();
             queryClient.invalidateQueries({ queryKey: ['user'] });
             router.push("/");
             closeModal();

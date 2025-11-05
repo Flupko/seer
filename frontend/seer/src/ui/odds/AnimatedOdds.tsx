@@ -1,4 +1,5 @@
 'use client';
+import { gcd } from '@/lib/lslmsr/math_util';
 import { OddsFormat } from '@/lib/odds';
 import NumberFlow from '@number-flow/react';
 import { Decimal } from 'decimal.js';
@@ -25,11 +26,11 @@ function toAmerican(p: Decimal) {
     if (p.lessThanOrEqualTo(0)) {
         return { sign: '+', value: 0 };
     }
-    const d = new Decimal(1).div(p);
-    if (d.greaterThanOrEqualTo(2)) {
-        return { sign: '+', value: d.minus(1).mul(100).toDecimalPlaces(0, Decimal.ROUND_DOWN).toNumber() };
+
+    if (p.greaterThanOrEqualTo(0.5)) {
+        return { sign: '-', value: p.div(new Decimal(1).minus(p)).mul(100).toDecimalPlaces(0).toNumber() };
     }
-    return { sign: '-', value: new Decimal(100).div(d.minus(1)).toDecimalPlaces(0, Decimal.ROUND_DOWN).toNumber() };
+    return { sign: '+', value: new Decimal(1).minus(p).div(p).mul(100).toDecimalPlaces(0).toNumber() };
 }
 
 // Fractional odds F = (1/p – 1) as n/d reduced by GCD
@@ -40,10 +41,6 @@ function toFraction(p: Decimal, maxDen = 100) {
     const f = new Decimal(1).div(p).minus(1);
     const num = f.mul(maxDen).round();
     const den = new Decimal(maxDen);
-
-    // recursive GCD for Decimal
-    const gcd = (a: Decimal, b: Decimal): Decimal =>
-        b.equals(0) ? a : gcd(b, a.mod(b));
 
     const g = gcd(num.abs(), den).abs();
     return {
@@ -59,71 +56,61 @@ export function AnimatedOdds({
     prob: Decimal;
     format: OddsFormat;
 }) {
-    const variants = {
-        initial: { opacity: 0, y: 8 },
-        animate: { opacity: 1, y: 0 },
-        exit: { opacity: 0, y: -8 },
-        transition: { duration: 0.18 },
-    };
 
 
     return (
 
         <AnimatePresence mode="wait" initial={false}>
             {format === 'decimal' && (
-                <motion.span key="decimal" {...variants}>
+                <span>
                     <NumberFlow
                         value={toDecimalOdds(prob)}
                         locales="en-US"
                         format={{ style: 'decimal', minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: false }}
                     />
-                </motion.span>
+                </span>
             )}
 
             {format === 'percent' && (
-                <motion.span key="percent" {...variants}>
+                <span>
                     <NumberFlow
                         value={toPercent(prob)}
                         locales="en-US"
                         format={{ style: 'percent', minimumFractionDigits: 0, maximumFractionDigits: 0, useGrouping: false }}
                     />
-                </motion.span>
+                </span>
             )}
 
             {format === 'american' && (() => {
                 const { sign, value } = toAmerican(prob);
                 return (
-                    <motion.span key="american" {...variants} >
-                        <span>
-                            <span>{sign}</span>
-                            <NumberFlow
-                                value={value}
-                                locales="en-US"
-                                format={{ style: 'decimal', minimumFractionDigits: 0, maximumFractionDigits: 0, useGrouping: false }}
-                            />
-                        </span>
-                    </motion.span>
+                    <span>
+                        <span>{sign}</span>
+                        <NumberFlow
+                            value={value}
+                            locales="en-US"
+                            format={{ style: 'decimal', minimumFractionDigits: 0, maximumFractionDigits: 0, useGrouping: false }}
+                        />
+                    </span>
                 );
             })()}
 
             {format === 'fractional' && (() => {
                 const { n, d } = toFraction(prob, 100);
                 return (
-                    <motion.span key="fractional" {...variants}>
-                        <span>
-                            <NumberFlow
-                                value={n}
-                                locales="en-US"
-                                format={{ style: 'decimal', minimumFractionDigits: 0, maximumFractionDigits: 0, useGrouping: false }}
-                            />
-                            <span>/</span>
-                            <NumberFlow
-                                value={d}
-                                locales="en-US"
-                                format={{ style: 'decimal', minimumFractionDigits: 0, maximumFractionDigits: 0, useGrouping: false }}
-                            />
-                        </span>
-                    </motion.span>
+                    <span>
+                        <NumberFlow
+                            value={n}
+                            locales="en-US"
+                            format={{ style: 'decimal', minimumFractionDigits: 0, maximumFractionDigits: 0, useGrouping: false }}
+                        />
+                        <motion.span layout>/</motion.span>
+                        <NumberFlow
+                            value={d}
+                            locales="en-US"
+                            format={{ style: 'decimal', minimumFractionDigits: 0, maximumFractionDigits: 0, useGrouping: false }}
+                        />
+                    </span>
                 );
             })()}
         </AnimatePresence>

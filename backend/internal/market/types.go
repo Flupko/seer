@@ -17,8 +17,8 @@ const (
 	StatusDraft     MarketStatus = "draft"
 	StatusOpened    MarketStatus = "opened"
 	StatusPaused    MarketStatus = "paused"
-	StatusSettling  MarketStatus = "settling"
 	StatusResolved  MarketStatus = "resolved"
+	StatusPending   MarketStatus = "pending" // When a market is
 	StatusCancelled MarketStatus = "cancelled"
 )
 
@@ -62,10 +62,23 @@ type Outcome struct {
 	Position int64
 }
 
+type OutcomeView struct {
+	Outcome
+	PriceCharts []PriceChart
+}
+
+type MarketResolution struct {
+	ID               int64
+	MarketID         uuid.UUID
+	WinningOutcomeID int64
+	CreatedAt        time.Time
+}
+
 type MarketView struct {
 	Market
+	Resolution *MarketResolution
 	Categories []Category
-	Outcomes   []Outcome
+	Outcomes   []OutcomeView
 }
 
 type MarketSearchResult struct {
@@ -98,17 +111,19 @@ type BetCashout struct {
 
 type BetView struct {
 	Bet
-	User struct {
+	Cashout *BetCashout
+	User    struct {
 		ID       uuid.UUID
 		Username string
 		Hidden   bool
 	}
-	Status      BetStatus
-	MarketID    uuid.UUID
-	MarketName  string
-	OutcomeID   int64
-	Currency    finance.Currency
-	OutcomeName string
+	Status       BetStatus
+	MarketID     uuid.UUID
+	MarketName   string
+	MarketImgKey string
+	OutcomeID    int64
+	Currency     finance.Currency
+	OutcomeName  string
 }
 
 type Category struct {
@@ -130,10 +145,10 @@ const (
 )
 
 var marketSortSafeMap = map[SortMarket]string{
-	SortTrending:   "volume_24h DESC",
-	SortNewest:     "created_at DESC",
-	SortVolume:     "volume DESC",
-	SortEndingSoon: "CASE WHEN close_time IS NULL THEN 'infinity'::timestamp ELSE close_time END ASC",
+	SortTrending:   "m.volume_24h DESC",
+	SortNewest:     "m.created_at DESC",
+	SortVolume:     "m.volume DESC",
+	SortEndingSoon: "CASE WHEN m.close_time IS NULL THEN 'infinity'::timestamp ELSE m.close_time END ASC",
 }
 
 type SearchQuery struct {
@@ -169,11 +184,11 @@ func (sq *SearchQuery) GetOrderBy() string {
 type BetStatus string
 
 const (
-	BetStatusActive   BetStatus = "active"
-	BetStatusWon      BetStatus = "won"
-	BetStatusLost     BetStatus = "lost"
-	BetStatusResolved BetStatus = "resolved" // won OR lost
-	BetStatusRefunded BetStatus = "refunded"
+	BetStatusActive    BetStatus = "active"
+	BetStatusWon       BetStatus = "won"
+	BetStatusLost      BetStatus = "lost"
+	BetStatusCashedOut BetStatus = "cashedOut"
+	BetStatusResolved  BetStatus = "resolved" // won OR lost OR cashedOut
 )
 
 type BetSearchQuery struct {
@@ -200,12 +215,14 @@ const (
 	SortPlacedAt SortBet = "placedAt"
 	SortWager    SortBet = "wager"
 	SortPayout   SortBet = "payout"
+	SortEvent    SortBet = "event"
 )
 
 var betSortSafeMap = map[SortBet]string{
 	SortPlacedAt: "placed_at",
 	SortWager:    "total_price_paid",
 	SortPayout:   "payout",
+	SortEvent:    "event_at",
 }
 
 func (sq *BetSearchQuery) GetOrderBy() string {
@@ -237,6 +254,7 @@ type MarketState struct {
 	Alpha         *numeric.BigDecimal   `json:"alpha"`
 	Fee           *numeric.BigDecimal   `json:"fee"`
 	CapPrice      *numeric.BigDecimal   `json:"capPrice"`
+	Volume        *numeric.BigDecimal   `json:"volume"`
 	OutcomeIDs    []int64               `json:"outcomeIDs"`
 	QVec          []*numeric.BigDecimal `json:"qVec"`
 	Prices        []*numeric.BigDecimal `json:"price"`
@@ -259,4 +277,34 @@ type BetState struct {
 	Payout   *numeric.BigDecimal `json:"payout"`
 	AvgPrice *numeric.BigDecimal `json:"avgPrice"`
 	PlacedAt time.Time           `json:"placedAt"`
+}
+
+type PricesTimeframe string
+
+const (
+	Prices24h PricesTimeframe = "24h"
+	Prices7d  PricesTimeframe = "7d"
+	Prices30d PricesTimeframe = "30d"
+	PricesAll PricesTimeframe = "all"
+)
+
+var pricesTimeframeSafeMap = map[PricesTimeframe]struct {
+	table    string
+	duration string
+}{
+	Prices24h: {"outcome_price_5m", "'5m'"},
+	Prices7d:  {"outcome_price_1h", "'1h'"},
+	Prices30d: {"outcome_price_4h", "'4h'"},
+	PricesAll: {"outcome_price_24h", "'24h'"},
+}
+
+type PriceChart struct {
+	Timeframe PricesTimeframe       `json:"timeframe"`
+	Prices    []PriceChartDataPoint `json:"prices"`
+}
+
+type PriceChartDataPoint struct {
+	Timestamp int64               `json:"timestamp"`
+	Date      time.Time           `json:"date"`
+	Price     *numeric.BigDecimal `json:"price"`
 }

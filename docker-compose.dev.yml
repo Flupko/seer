@@ -37,7 +37,7 @@ services:
       - seer-network
   
   db:
-    image: postgres:16-alpine
+    image: timescale/timescaledb:latest-pg17
     environment:
       POSTGRES_USER: seer
       POSTGRES_PASSWORD: seerpassword

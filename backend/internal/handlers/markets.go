@@ -68,24 +68,26 @@ func (h *MarketHandler) GetQuoteBet(c echo.Context) error {
 
 type userBetSearchReq struct {
 	MarketID *uuid.UUID        `query:"marketID"`
-	Status   *market.BetStatus `query:"betStatus" validate:"omitempty,oneof=active won lost resolved"`
+	Status   *market.BetStatus `query:"status" validate:"omitempty,oneof=active won lost cashedOut resolved"`
 	PageSize int64             `query:"pageSize" validate:"min=4,max=20"`
 	Page     int64             `query:"page" validate:"min=1"`
-	Sort     market.SortBet    `query:"sort" validate:"omitempty,oneof=placedAt wager payout"`
+	Sort     market.SortBet    `query:"sort" validate:"omitempty,oneof=placedAt wager payout event"`
 	SortDir  string            `query:"sortDir" validate:"omitempty,oneof=asc desc"`
 }
 
 type userBetSearchRes struct {
-	ID          uuid.UUID           `json:"id"`
-	Status      market.BetStatus    `json:"betStatus"`
-	PricePaid   *numeric.BigDecimal `json:"pricePaid"`
-	Payout      *numeric.BigDecimal `json:"payout"`
-	AvgPrice    *numeric.BigDecimal `json:"avgPrice"`
-	MarketID    uuid.UUID           `json:"marketId"`
-	MarketName  string              `json:"marketName"`
-	OutcomeID   int64               `json:"outcomesId"`
-	OutcomeName string              `json:"outcomeName"`
-	PlacedAt    time.Time           `json:"placeAt"`
+	ID           uuid.UUID           `json:"id"`
+	Status       market.BetStatus    `json:"status"`
+	PricePaid    *numeric.BigDecimal `json:"pricePaid"`
+	Payout       *numeric.BigDecimal `json:"payout"`
+	CashedOut    *numeric.BigDecimal `json:"cashedOut,omitempty"`
+	AvgPrice     *numeric.BigDecimal `json:"avgPrice"`
+	MarketID     uuid.UUID           `json:"marketId"`
+	MarketName   string              `json:"marketName"`
+	MarketImgKey string              `json:"marketImgKey"`
+	OutcomeID    int64               `json:"outcomeId"`
+	OutcomeName  string              `json:"outcomeName"`
+	PlacedAt     time.Time           `json:"placedAt"`
 }
 
 func (h *MarketHandler) GetPersonnalBets(c echo.Context) error {
@@ -96,7 +98,7 @@ func (h *MarketHandler) GetPersonnalBets(c echo.Context) error {
 	}
 
 	if r.Sort == "" {
-		r.Sort = market.SortPlacedAt
+		r.Sort = market.SortEvent
 		r.SortDir = "desc"
 	} else if r.SortDir == "" {
 		return echo.NewHTTPError(http.StatusBadRequest, "sortDir is required if sort is provided")
@@ -104,6 +106,8 @@ func (h *MarketHandler) GetPersonnalBets(c echo.Context) error {
 
 	user := utils.ContextGetUser(c)
 	ctx := c.Request().Context()
+
+	fmt.Println(r.Status)
 
 	bsq := &market.BetSearchQuery{
 		UserID:   &user.ID,
@@ -124,16 +128,21 @@ func (h *MarketHandler) GetPersonnalBets(c echo.Context) error {
 	betsResp := make([]*userBetSearchRes, 0, len(betsView))
 	for _, b := range betsView {
 		br := &userBetSearchRes{
-			ID:          b.ID,
-			Status:      b.Status,
-			PricePaid:   b.TotalPricePaid,
-			Payout:      b.Payout,
-			AvgPrice:    b.AvgPrice,
-			MarketID:    b.MarketID,
-			MarketName:  b.MarketName,
-			OutcomeID:   b.OutcomeID,
-			OutcomeName: b.OutcomeName,
-			PlacedAt:    b.PlacedAt,
+			ID:           b.ID,
+			Status:       b.Status,
+			PricePaid:    b.TotalPricePaid,
+			Payout:       b.Payout,
+			AvgPrice:     b.AvgPrice,
+			MarketID:     b.MarketID,
+			MarketName:   b.MarketName,
+			MarketImgKey: b.MarketImgKey,
+			OutcomeID:    b.OutcomeID,
+			OutcomeName:  b.OutcomeName,
+			PlacedAt:     b.PlacedAt,
+		}
+
+		if b.Cashout != nil {
+			br.CashedOut = b.Cashout.Payout
 		}
 		betsResp = append(betsResp, br)
 	}
@@ -152,15 +161,16 @@ type publicBetRes struct {
 		ID       uuid.UUID `json:"id"`
 		Username string    `json:"username"`
 	} `json:"user,omitempty"`
-	Status      market.BetStatus    `json:"betStatus"`
-	PricePaid   *numeric.BigDecimal `json:"pricePaid"`
-	Payout      *numeric.BigDecimal `json:"payout"`
-	AvgPrice    *numeric.BigDecimal `json:"avgPrice"`
-	MarketID    uuid.UUID           `json:"marketId"`
-	MarketName  string              `json:"marketName"`
-	OutcomeID   int64               `json:"outcomesId"`
-	OutcomeName string              `json:"outcomeName"`
-	PlacedAt    time.Time           `json:"placeAt"`
+	Status       market.BetStatus    `json:"betStatus"`
+	PricePaid    *numeric.BigDecimal `json:"pricePaid"`
+	Payout       *numeric.BigDecimal `json:"payout"`
+	AvgPrice     *numeric.BigDecimal `json:"avgPrice"`
+	MarketID     uuid.UUID           `json:"marketId"`
+	MarketName   string              `json:"marketName"`
+	MarketImgKey string              `json:"marketImgKey"`
+	OutcomeID    int64               `json:"outcomesId"`
+	OutcomeName  string              `json:"outcomeName"`
+	PlacedAt     time.Time           `json:"placeAt"`
 }
 
 func (h *MarketHandler) PublicGetBet(c echo.Context) error {
@@ -182,16 +192,17 @@ func (h *MarketHandler) PublicGetBet(c echo.Context) error {
 	}
 
 	betResp := &publicBetRes{
-		ID:          betView.ID,
-		Status:      betView.Status,
-		PricePaid:   betView.AvgPrice,
-		Payout:      betView.Payout,
-		AvgPrice:    betView.AvgPrice,
-		MarketID:    betView.MarketID,
-		MarketName:  betView.MarketName,
-		OutcomeID:   betView.OutcomeID,
-		OutcomeName: betView.OutcomeName,
-		PlacedAt:    betView.PlacedAt,
+		ID:           betView.ID,
+		Status:       betView.Status,
+		PricePaid:    betView.AvgPrice,
+		Payout:       betView.Payout,
+		AvgPrice:     betView.AvgPrice,
+		MarketID:     betView.MarketID,
+		MarketName:   betView.MarketName,
+		MarketImgKey: betView.MarketImgKey,
+		OutcomeID:    betView.OutcomeID,
+		OutcomeName:  betView.OutcomeName,
+		PlacedAt:     betView.PlacedAt,
 	}
 	if !betView.User.Hidden {
 		betResp.User = &struct {
@@ -211,16 +222,17 @@ type marketSearchUserReq struct {
 	Query        *string           `query:"query" validate:"omitempty,min=3,max=50"`
 	CategorySlug *string           `query:"categorySlug" validate:"omitempty,min=1"`
 	Sort         market.SortMarket `query:"sort" validate:"required,oneof=trending volume newest endingSoon"`
-	Status       string            `query:"status" validate:"omitempty,oneof=active resolved"`
+	Status       string            `query:"status" validate:"omitempty,oneof=active pending resolved"`
 	PageSize     int64             `query:"pageSize" validate:"min=3,max=20"`
 	Page         int64             `query:"page" validate:"min=1"`
 }
 
 type outcomeUserRes struct {
-	ID       int64               `json:"id"`
-	Name     string              `json:"name"`
-	Position int64               `json:"position"`
-	Quantity *numeric.BigDecimal `json:"quantity"`
+	ID          int64               `json:"id"`
+	Name        string              `json:"name"`
+	Position    int64               `json:"position"`
+	Quantity    *numeric.BigDecimal `json:"quantity"`
+	PriceCharts []market.PriceChart `json:"priceCharts,omitempty"`
 }
 
 type categoryRes struct {
@@ -230,23 +242,33 @@ type categoryRes struct {
 	IconUrl string `json:"iconUrl"`
 }
 
-type marketSearcUserRes struct {
+type marketResolutionRes struct {
+	ID               *int64    `json:"id,omitempty"`
+	MarketID         uuid.UUID `json:"marketId"`
+	WinningOutcomeID int64     `json:"winningOutcomeId"`
+	CreatedAt        time.Time `json:"createdAt"`
+}
+
+type marketSearchUserRes struct {
 	ID          uuid.UUID                `json:"id"`
 	Name        string                   `json:"name"`
 	Description string                   `json:"description"`
 	ImgKey      string                   `json:"imgKey"`
+	Status      string                   `json:"status"`
 	Slug        string                   `json:"slug"`
 	CloseTime   *time.Time               `json:"closeTime,omitempty"`
 	Alpha       *numeric.BigDecimal      `json:"alpha"`
 	Fee         *numeric.BigDecimal      `json:"fee"`
+	TotalVolume *numeric.BigDecimal      `json:"totalVolume"`
 	CapPrice    *numeric.BigDecimal      `json:"capPrice"`
 	OutcomeSort market.MarketOutcomeSort `json:"outcomeSort"`
 	Categories  []*categoryRes           `json:"categories"`
 	Outcomes    []*outcomeUserRes        `json:"outcomes"`
+	Resolution  *marketResolutionRes     `json:"resolution,omitempty"`
 }
 
-func (h *MarketHandler) marketStateToUserRes(ctx context.Context, m *market.MarketView) (*marketSearcUserRes, error) {
-	mr := &marketSearcUserRes{
+func (h *MarketHandler) marketStateToUserRes(ctx context.Context, m *market.MarketView) (*marketSearchUserRes, error) {
+	mr := &marketSearchUserRes{
 		ID:          m.ID,
 		Name:        m.Name,
 		Description: m.Description,
@@ -260,8 +282,25 @@ func (h *MarketHandler) marketStateToUserRes(ctx context.Context, m *market.Mark
 		Outcomes:    make([]*outcomeUserRes, 0, len(m.Outcomes)),
 	}
 
+	switch {
+	case m.Status == market.StatusOpened && m.CloseTime.Valid && m.CloseTime.Time.Before(time.Now()):
+		mr.Status = "pending"
+	case m.Status == market.StatusOpened:
+		mr.Status = "active"
+	default:
+		mr.Status = string(m.Status)
+	}
+
 	if m.CloseTime.Valid {
 		mr.CloseTime = &m.CloseTime.Time
+	}
+
+	if m.Resolution != nil {
+		mr.Resolution = &marketResolutionRes{
+			MarketID:         m.Resolution.MarketID,
+			WinningOutcomeID: m.Resolution.WinningOutcomeID,
+			CreatedAt:        m.Resolution.CreatedAt,
+		}
 	}
 
 	for _, c := range m.Categories {
@@ -276,9 +315,10 @@ func (h *MarketHandler) marketStateToUserRes(ctx context.Context, m *market.Mark
 
 	for _, o := range m.Outcomes {
 		or := &outcomeUserRes{
-			ID:       o.ID,
-			Name:     o.Name,
-			Position: o.Position,
+			ID:          o.ID,
+			Name:        o.Name,
+			Position:    o.Position,
+			PriceCharts: o.PriceCharts,
 		}
 		mr.Outcomes = append(mr.Outcomes, or)
 	}
@@ -288,6 +328,8 @@ func (h *MarketHandler) marketStateToUserRes(ctx context.Context, m *market.Mark
 	if err != nil {
 		return nil, fmt.Errorf("failed to get market state: %w", err)
 	}
+
+	mr.TotalVolume = mState.Volume
 
 	prices, err := market.PricesBD(mState.QVec, m.Alpha, m.Fee)
 	if err != nil {
@@ -329,17 +371,19 @@ func (h *MarketHandler) GetMarketsUser(c echo.Context) error {
 		msq.Status = market.StatusOpened
 	case "resolved":
 		msq.Status = market.StatusResolved
+	case "pending":
+		msq.Status = market.StatusPending
 	default:
 		msq.Status = market.StatusOpened
 	}
 
-	marketsView, metadata, err := h.qm.SearchMarkets(ctx, msq, false)
+	marketsView, metadata, err := h.qm.SearchMarkets(ctx, msq, true)
 	if err != nil {
 		fmt.Println("market search failed", err)
 		return fmt.Errorf("failed to search markets: %w", err)
 	}
 
-	markets := make([]*marketSearcUserRes, 0, len(marketsView))
+	markets := make([]*marketSearchUserRes, 0, len(marketsView))
 	for _, m := range marketsView {
 
 		mr, err := h.marketStateToUserRes(ctx, m)
@@ -354,7 +398,7 @@ func (h *MarketHandler) GetMarketsUser(c echo.Context) error {
 }
 
 type getMarketReq struct {
-	MarketID uuid.UUID `path:"id" validate:"required"`
+	MarketID uuid.UUID `param:"id" validate:"required"`
 }
 
 func (h *MarketHandler) GetMarketUser(c echo.Context) error {
@@ -364,9 +408,12 @@ func (h *MarketHandler) GetMarketUser(c echo.Context) error {
 		return err
 	}
 
+	fmt.Println("Fetching market for id:", r.MarketID)
+
 	ctx := c.Request().Context()
 	m, err := h.qm.GetMarketByID(ctx, r.MarketID)
 	if err != nil {
+		fmt.Println("err", err)
 		return mapErrorRepo(err)
 	}
 
@@ -417,6 +464,8 @@ func mapErrorRepo(err error) *echo.HTTPError {
 		return echo.NewHTTPError(http.StatusBadRequest, finance.ErrInsufficientFunds.Error())
 	case errors.Is(err, finance.ErrAccountNotFound):
 		return echo.NewHTTPError(http.StatusBadRequest, finance.ErrAccountNotFound.Error())
+	case errors.Is(err, market.ErrBetNotFound):
+		return echo.NewHTTPError(http.StatusNotFound, market.ErrBetNotFound.Error())
 	default:
 		return echo.NewHTTPError(http.StatusInternalServerError)
 	}

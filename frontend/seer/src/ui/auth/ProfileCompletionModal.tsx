@@ -3,6 +3,7 @@
 import Button from "@/ui/Button";
 import { SubmitHandler, useForm } from "react-hook-form";
 
+import { useWebSocket } from "@/app/WsProvider";
 import * as api from "@/lib/api";
 import { ProfileCompletionFormValues, ProfileCompletionSchema } from "@/lib/definitions";
 import { useModalStore } from "@/lib/stores/modal";
@@ -31,10 +32,13 @@ export default function ProfileCompletionModal() {
     const queryClient = useQueryClient();
     const closeModal = useModalStore((state) => state.closeModal);
 
+    const ws = useWebSocket();
+
 
     const mutation = useMutation({
         mutationFn: api.completeProfile,
         onSuccess: () => {
+            ws?.disonnect();
             queryClient.invalidateQueries({ queryKey: ['user'] });
             router.push("/");
             closeModal();

@@ -3,7 +3,7 @@ import Loader from "./loader/Loader";
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   width: "small" | "full";
-  height?: "small" | "large";
+  height?: "small" | "extraSmall" | "large";
   bg: string;
   children: React.ReactNode;
   onClick?: () => void;
@@ -29,6 +29,7 @@ export default function Button({
   };
 
   const heightClasses = {
+    extraSmall: "h-10.5",
     small: "h-12",
     large: "h-13.5",
   };
@@ -48,6 +49,11 @@ export default function Button({
         rounded-md
         transition-all 
         duration-200
+        shrink-0
+
+        flex
+        items-center
+        justify-center
 
         hover:brightness-115
 

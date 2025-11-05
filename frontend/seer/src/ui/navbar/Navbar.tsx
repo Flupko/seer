@@ -9,26 +9,32 @@ export default function Navbar() {
     const { data: user, isPending } = useUserQuery();
 
     return (
-        <nav className="border-b border-gray-700 px-4 md:px-12 bg-grayscale-black z-50 sticky top-0 h-19">
-            <div className="grid grid-cols-3 items-center max-w-7xl mx-auto h-full">
+        <>
+            <nav className="border-b border-gray-700 w-full px-4 md:px-12 bg-grayscale-black z-50 sticky top-0 h-19">
 
-                <Link href="/" className="select-none cursor-pointer">
-                    <h1 className="text-3xl font-bold text-white justify-self-start">SEER</h1>
-                </Link>
+                {/* Chrome IOS scroll hider */}
+                <div className="bg-gray-900 h-12.5 w-full fixed -top-[50px]"></div>
+                <div className="grid grid-cols-3 items-center max-w-7xl mx-auto h-full">
+
+                    <Link href="/" className="select-none cursor-pointer contents" scroll={false}>
+                        <h1 className="text-3xl font-bold text-white justify-self-start w-fit">Seer</h1>
+                    </Link>
 
 
-                {!isPending && user &&
-                    <NavbarLogged />
-                }
+                    {!isPending && user &&
+                        <NavbarLogged />
+                    }
 
-                {!isPending && !user && (
-                    <>
-                        <div className="justify-self-center"></div>
-                        <div className="justify-self-end"> <NavbarUnlogged /></div>
+                    {!isPending && !user && (
+                        <>
+                            <div className="justify-self-center"></div>
+                            <div className="justify-self-end"> <NavbarUnlogged /></div>
 
-                    </>
-                )}
-            </div>
-        </nav>
+                        </>
+                    )}
+                </div>
+            </nav>
+
+        </>
     );
 }

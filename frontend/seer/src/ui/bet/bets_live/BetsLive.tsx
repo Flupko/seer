@@ -13,6 +13,37 @@ export default function BetsLive() {
 
     const latestBets = useBetStore((s) => s.latestBets);
     const latestParity = useBetStore((s) => s.latestParity);
+    const addLatestBet = useBetStore((s) => s.addLatestBet);
+
+    // Add dummy bets every second for demo purposes
+    // useEffect(() => {
+    //     const interval = setInterval(() => {
+
+
+    //         const result = BetUpdateSchema.safeParse({
+    //             id: self.crypto.randomUUID(),
+    //             marketID: self.crypto.randomUUID(),
+    //             marketSlug: "demo-market",
+    //             marketName: "Demo Market",
+    //             outcomeId: 1,
+    //             outcomeName: "Demo Outcome",
+    //             wager: new Decimal(100),
+    //             payout: new Decimal(200),
+    //             avgPrice: new Decimal(0.5),
+    //             placedAt: new Date(),
+    //         });
+
+    //         if (result.success) {
+    //             addLatestBet(result.data);
+    //         } else {
+    //             console.error("Failed to create demo bet:", result.error);
+    //         }
+
+
+    //     }
+    //         , 700);
+    //     return () => clearInterval(interval);
+    // }, [addLatestBet]);
 
 
     const highBets = useBetStore((s) => s.highBets);

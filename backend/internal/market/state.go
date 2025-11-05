@@ -145,8 +145,9 @@ func (sm *StateManager) updateMarketState(payload string) error {
 	}
 
 	wsPayload := ws.MarketUpdate{
-		ID:      ms.ID,
-		Version: ms.Version,
+		ID:          ms.ID,
+		Version:     ms.Version,
+		TotalVolume: ms.Volume,
 	}
 
 	for i := range len(ms.QVec) {
@@ -244,15 +245,15 @@ func (sm *StateManager) retrieveMarketStateDB(ctx context.Context, marketID uuid
 	ms := &MarketState{}
 
 	query := `
-	SELECT m.id, m.version, m.alpha, m.fee, m.cap_price,
+	SELECT m.id, m.version, m.alpha, m.fee, m.cap_price, m.volume,
 	array_agg(o.quantity ORDER BY o.id) AS q_vec,
 	array_agg(o.id ORDER BY o.id) AS outcome_ids
 	FROM markets m
 	JOIN outcomes o ON o.market_id = m.id
-	WHERE m.id = $1 AND status = 'opened' AND (close_time IS NULL OR close_time > NOW())
+	WHERE m.id = $1
 	GROUP BY m.id, m.version, m.alpha, m.fee`
 
-	if err := sm.db.QueryRow(ctx, query, marketID).Scan(&ms.ID, &ms.Version, &ms.Alpha, &ms.Fee, &ms.CapPrice, &ms.QVec, &ms.OutcomeIDs); err != nil {
+	if err := sm.db.QueryRow(ctx, query, marketID).Scan(&ms.ID, &ms.Version, &ms.Alpha, &ms.Fee, &ms.CapPrice, &ms.Volume, &ms.QVec, &ms.OutcomeIDs); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrMarketNotFound
 		}

@@ -1,7 +1,7 @@
 'use client'
 
 import { QueryFunction, QueryKey, useQueryClient } from '@tanstack/react-query'
-import Link from 'next/link'
+import Link, { LinkProps } from 'next/link'
 import { useRef } from 'react'
 
 type PrefetchItem<TData = unknown> = {
@@ -10,35 +10,63 @@ type PrefetchItem<TData = unknown> = {
     staleTime?: number
 }
 
+type PrefetchLinkProps = LinkProps & {
+    queries?: PrefetchItem[]
+    infiniteQueries?: PrefetchItem[]
+    children: React.ReactNode
+    className?: string
+}
+
 export default function PrefetchLink({
     href,
     queries = [],
+    infiniteQueries = [],
     children,
-}: {
-    href: string
-    queries?: PrefetchItem[]
-    children: React.ReactNode
-}) {
+    className,
+    ...rest
+}: PrefetchLinkProps) {
     const queryClient = useQueryClient()
-    const alreadyFetched = useRef(false)
+    const prefetched = useRef<boolean>(false)
 
-    const onIntent = () => {
-        if (alreadyFetched.current) return
 
-        const tasks = queries
-            .map((q) =>
-                queryClient.prefetchQuery({
-                    queryKey: q.queryKey,
-                    queryFn: q.queryFn,
-                    staleTime: q.staleTime ?? 60_000,
-                }),
-            )
+    const onIntent = async () => {
+        if (prefetched.current) return
+        prefetched.current = true
 
-        void Promise.all(tasks)
+        try {
+            const tasks = [
+                ...queries.map((q) =>
+                    queryClient.prefetchQuery({
+                        queryKey: q.queryKey,
+                        queryFn: q.queryFn,
+                        staleTime: q.staleTime ?? 60_000,
+                    }),
+                ),
+                ...infiniteQueries.map((q) =>
+                    queryClient.prefetchInfiniteQuery({
+                        queryKey: q.queryKey,
+                        initialPageParam: 1 as never,
+                        queryFn: q.queryFn,
+                    }),
+                ),
+            ]
+            await Promise.all(tasks)
+        } catch (e) {
+            // optional: log or ignore prefetch errors
+            console.warn('Prefetch failed for', href, e)
+        }
     }
 
     return (
-        <Link href={href} onMouseEnter={onIntent} onFocus={onIntent} onTouchStart={onIntent} className='contents'>
+        <Link
+            href={href}
+            onMouseEnter={onIntent}
+            onPointerEnter={onIntent}
+            onFocus={onIntent}
+            onTouchStart={onIntent}
+            className={className}
+            {...rest}
+        >
             {children}
         </Link>
     )

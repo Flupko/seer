@@ -2,7 +2,10 @@
 
 import { Balance, MarketView } from "@/lib/definitions";
 import { pricesForMarket } from "@/lib/lslmsr/lslmsr";
+import { useUserQuery } from "@/lib/queries/useUserQuery";
 import { useBetStore } from "@/lib/stores/bets";
+import { useChatStore } from "@/lib/stores/chats";
+import { useOnlineStore } from "@/lib/stores/online";
 import { BalanceUpdate, MarketUpdate } from "@/socket/messages";
 import { getWSClient, WSClient } from "@/socket/socket";
 import { useQueryClient } from "@tanstack/react-query";
@@ -34,15 +37,16 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
     const betsHigh = useBetStore((state) => state.highBets);
     const addHighBet = useBetStore((state) => state.addHighBet);
 
+    const addChatMessage = useChatStore((state) => state.addChatMessage)
+
+    const updateOnlineCount = useOnlineStore((state) => state.updateOnlineCount);
+
+    const { data: user } = useUserQuery();
+
     useEffect(() => {
         const ws = getWSClient() // only runs in browser
 
         console.log("WsProvider mounting, subscribing to ws events");
-        ws.onConnect(() => {
-            ws.emit({ type: "subscribe:markets_update" });
-            ws.emit({ type: "subscribe:online_count" });
-            ws.emit({ type: "subscribe:bets" });
-        });
 
         ws.on("markets_update", (marketUpdate: MarketUpdate) => {
             qc.setQueryData(['market', marketUpdate.marketID], (oldMarket: MarketView | null) => {
@@ -61,8 +65,53 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
 
                 pricesForMarket(oldMarket);
 
-                return { ...oldMarket, version: marketUpdate.marketVersion };
+                // Update charts for each outcome
+                // Add new price point (replace last point if same timestamp)
+                const now = new Date();
+                for (const outcome of oldMarket.outcomes) {
+                    if (!outcome.priceCharts) continue;
+                    for (const priceChart of outcome.priceCharts) {
+                        // Depending on the chart interval, we compute current timestamp bucket
+                        let bucketDate = new Date();
+                        switch (priceChart.timeframe) {
 
+                            case '24h':
+                                // 5 minutes buckets
+                                bucketDate = new Date(Math.floor(now.getTime() / (5 * 60 * 1000)) * (5 * 60 * 1000));
+                                break;
+
+                            case '7d':
+                                // 1h buckets
+                                bucketDate = new Date(Math.floor(now.getTime() / (60 * 60 * 1000)) * (60 * 60 * 1000));
+                                break;
+
+                            case '30d':
+                                // 4h buckets
+                                bucketDate = new Date(Math.floor(now.getTime() / (4 * 60 * 60 * 1000)) * (4 * 60 * 60 * 1000));
+                                break;
+                            case 'all':
+                            // TODO
+
+                        }
+
+                        const lastPoint = priceChart.prices[priceChart.prices.length - 1];
+                        if (lastPoint.date.getTime() === bucketDate.getTime()) {
+                            // Replace last point
+                            lastPoint.price = outcome.price;
+                            console.log("Replacing last price point for chart ", priceChart.timeframe, lastPoint, "outcome price:", outcome.price, "outcome", outcome);
+                        } else {
+                            // Add new point
+                            console.log("Replacing last price point for chart ", priceChart.timeframe, lastPoint, "outcome price:", outcome.price, "outcome", outcome);
+                            priceChart.prices.push({ timestamp: bucketDate.getTime(), date: bucketDate, price: outcome.price });
+                        }
+
+                    }
+                }
+
+                // Update total volume
+                oldMarket.totalVolume = marketUpdate.totalVolume;
+
+                return { ...oldMarket, version: marketUpdate.marketVersion };
             });
         });
 
@@ -77,7 +126,6 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
         })
 
         ws.on("bets:latest", (betUpdate) => {
-            console.log("Received latest bet update:", betUpdate);
             addLatestBet(betUpdate);
         });
 
@@ -85,7 +133,20 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
             addHighBet(betUpdate);
         });
 
+        ws.on("chat", (chatMessage) => {
+            addChatMessage(chatMessage)
+        });
 
+        ws.on("online", (onlineUpdate) => {
+            updateOnlineCount(onlineUpdate);
+        });
+
+        ws.onConnect(() => {
+            ws.emit({ type: "subscribe:markets_update" });
+            ws.emit({ type: "subscribe:online" });
+            ws.emit({ type: "subscribe:bets" });
+            ws.emit({ type: "subscribe:chat", payload: { chatSlug: "global" } });
+        });
 
         setWsClient(ws)
     }, [])

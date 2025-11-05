@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import BoundaryNorm, ListedColormap, TwoSlopeNorm
 import matplotlib.patches as mpatches
 
-ALPHA = 0.0432808512266689
+ALPHA = 0.043
 SEEDING = 1666
 FEE = 0
 

@@ -3,8 +3,10 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"seer/internal/numeric"
 	"seer/internal/repos"
 	"seer/internal/utils"
+	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
@@ -30,6 +32,8 @@ type userMeRes struct {
 	Email           string             `json:"email"`
 	Username        string             `json:"username"`
 	ProfileImageKey string             `json:"profileImageKey,omitempty"`
+	TotalWagered    numeric.BigDecimal `json:"totalWagered"`
+	CreatedAt       time.Time          `json:"createdAt"`
 	Status          repos.UserStatus   `json:"status"`
 }
 
@@ -42,18 +46,20 @@ func (h *UserHandler) UserMe(c echo.Context) error {
 		return c.JSON(http.StatusOK, nil)
 	}
 
-	userView, err := h.ur.GetViewByID(ctx, user.ID)
+	userView, err := h.ur.GetViewByIDOrUsername(ctx, user.ID, "")
 	if err != nil {
 		fmt.Println(err)
 		return fmt.Errorf("failed to get user: %w", err)
 	}
 
 	userResp := &userMeRes{
-		ID:          userView.ID,
-		Email:       userView.Email,
-		ProviderID:  userView.ProviderID,
-		HasPassword: userView.PasswordHash != nil,
-		Status:      userView.Status,
+		ID:           userView.ID,
+		Email:        userView.Email,
+		ProviderID:   userView.ProviderID,
+		HasPassword:  userView.PasswordHash != nil,
+		TotalWagered: userView.TotalWagered,
+		CreatedAt:    userView.CreatedAt,
+		Status:       userView.Status,
 	}
 
 	if userView.Username.Valid {
@@ -124,5 +130,50 @@ func (h *UserHandler) UpdatePreferences(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, prefs)
+
+}
+
+type userProfileReq struct {
+	Username string `param:"username" validate:"required,max=30"`
+}
+
+type userProfileRes struct {
+	ID              uuid.UUID          `json:"id"`
+	Username        string             `json:"username"`
+	ProfileImageKey string             `json:"profileImageKey,omitempty"`
+	TotalWagered    numeric.BigDecimal `json:"totalWagered"`
+	CreatedAt       time.Time          `json:"createdAt"`
+}
+
+func (h *UserHandler) GetUserProfile(c echo.Context) error {
+
+	r := &userProfileReq{}
+	if err := utils.ParseAndValidadePathParams(c, r, h.validate); err != nil {
+		return err
+	}
+
+	ctx := c.Request().Context()
+
+	userView, err := h.ur.GetViewByIDOrUsername(ctx, uuid.Nil, r.Username)
+	if err != nil {
+		return fmt.Errorf("failed to get user: %w", err)
+	}
+
+	if userView.Hidden {
+		return echo.NewHTTPError(http.StatusNotFound, "user not found")
+	}
+
+	res := &userProfileRes{
+		ID:           userView.ID,
+		Username:     r.Username,
+		TotalWagered: userView.TotalWagered,
+		CreatedAt:    userView.CreatedAt,
+	}
+
+	if userView.ProfileImageKey.Valid {
+		res.ProfileImageKey = userView.ProfileImageKey.String
+	}
+
+	return c.JSON(http.StatusOK, res)
 
 }

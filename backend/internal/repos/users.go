@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"seer/internal/numeric"
 	"time"
 
 	"github.com/google/uuid"
@@ -49,6 +50,8 @@ type User struct {
 
 	Role            Role
 	ProfileImageKey sql.NullString
+	TotalWagered    numeric.BigDecimal
+	Hidden          bool
 
 	CreatedAt time.Time
 
@@ -239,7 +242,7 @@ func (r *UserRepo) GetByID(ctx context.Context, userID uuid.UUID) (*User, error)
 
 	query := `SELECT u.id, u.email, u.username, 
 	u.password_hash, u.provider_id,
-	u.role, u.profile_image_key, 
+	u.role, u.profile_image_key, u.total_wagered, u.hidden,
 	u.created_at, 
 	u.status, u.version
 	FROM users u
@@ -255,6 +258,8 @@ func (r *UserRepo) GetByID(ctx context.Context, userID uuid.UUID) (*User, error)
 		&user.ProviderID,
 		&user.Role,
 		&user.ProfileImageKey,
+		&user.TotalWagered,
+		&user.Hidden,
 		&user.CreatedAt,
 		&user.Status,
 		&user.Version,
@@ -272,15 +277,16 @@ func (r *UserRepo) GetByID(ctx context.Context, userID uuid.UUID) (*User, error)
 	return &user, nil
 }
 
-func (r *UserRepo) GetViewByID(ctx context.Context, userID uuid.UUID) (*UserView, error) {
+func (r *UserRepo) GetViewByIDOrUsername(ctx context.Context, userID uuid.UUID, username string) (*UserView, error) {
 
-	query := `SELECT u.id, u.email, u.username, u.password_hash, u.provider_id, u.role, u.profile_image_key, 
+	query := `SELECT u.id, u.email, u.username, u.password_hash, u.provider_id, u.role, 
+	u.profile_image_key, u.total_wagered, u.hidden,
 	u.created_at, 
 	u.status, u.version
 	FROM users u
-	WHERE u.id = $1`
+	WHERE u.id = $1 OR u.username = $2`
 
-	row := r.db.QueryRow(ctx, query, userID)
+	row := r.db.QueryRow(ctx, query, userID, username)
 	var user UserView
 	err := row.Scan(
 		&user.ID,
@@ -290,6 +296,8 @@ func (r *UserRepo) GetViewByID(ctx context.Context, userID uuid.UUID) (*UserView
 		&user.ProviderID,
 		&user.Role,
 		&user.ProfileImageKey,
+		&user.TotalWagered,
+		&user.Hidden,
 		&user.CreatedAt,
 		&user.Status,
 		&user.Version,

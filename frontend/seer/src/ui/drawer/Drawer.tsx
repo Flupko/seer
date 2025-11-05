@@ -5,9 +5,10 @@ import { AnimatePresence, motion } from "motion/react";
 import { useMediaQuery } from "usehooks-ts";
 import BetDrawer from "../bet/BetDrawer";
 import SuccessBetDrawer from "../bet/BetSuccessDrawer";
+import ChatDrawer from "../chat/ChatDrawer";
 
 export const drawerComponent: Record<Exclude<DrawerType, null>, React.ElementType> = {
-    chat: BetDrawer,
+    chat: ChatDrawer,
     bet: BetDrawer,
     betSuccess: SuccessBetDrawer,
 };
@@ -28,7 +29,7 @@ export default function Drawer() {
             <AnimatePresence mode="wait" initial={false}>
                 {currentDrawer && !isSmall && (
                     <motion.aside
-                        className="border-l border-l-gray-700 h-screen bg-gray-900 overflow-hidden flex-shrink-0"
+                        className="border-l border-l-gray-700 bg-gray-900 h-screen max-h-screen overflow-hidden"
                         key="desktop-drawer"
                         initial={{ width: 0 }}
                         animate={{ width: "22.5rem" }}
@@ -36,7 +37,7 @@ export default function Drawer() {
                         transition={{ duration: 0.3, ease: "easeInOut" }}
                     >
                         <AnimatePresence mode="wait" initial={false}>
-                            <motion.div className="w-90 h-full overflow-y-auto"
+                            <motion.div className="w-90 h-screen max-h-screen"
                                 key={currentDrawer}
                                 initial={{ opacity: 0 }}
                                 animate={{ opacity: 1 }}
@@ -54,16 +55,20 @@ export default function Drawer() {
             <AnimatePresence mode="wait" initial={false}>
                 {currentDrawer && isSmall && (
                     <motion.aside
-                        className="fixed inset-0 bg-gray-900 overflow-hidden z-[70]"
-                        key="mobile-drawer"
-                        initial={{ y: "100%" }}
-                        animate={{ y: 0 }}
-                        exit={{ y: "100%" }}
-                        transition={{ duration: 0.3, ease: "easeInOut" }}
+                        className="overflow-hidden z-50 h-[calc(100vh-60px)]"
+
                     >
-                        <div className="h-full overflow-y-auto">
-                            {DrawerContent && <DrawerContent {...drawerData} />}
-                        </div>
+                        <motion.div className="w-full fixed left-0 h-[calc(100vh-60px)] bg-gray-900"
+                            key="mobile-drawer"
+                            initial={{ y: "100%" }}
+                            animate={{ y: 0 }}
+                            exit={{ y: "100%" }}
+                            transition={{ duration: 0.3, ease: "easeInOut" }}>
+                            <div className="flex flex-col h-full relative">
+                                {DrawerContent && <DrawerContent {...drawerData} />}
+                            </div>
+
+                        </motion.div>
                     </motion.aside>
                 )}
             </AnimatePresence>

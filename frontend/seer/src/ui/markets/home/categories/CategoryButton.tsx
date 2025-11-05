@@ -9,7 +9,7 @@ export default function CategoryButton({ category, active = false, ...rest }: { 
             {...rest}
         >
             <div
-                className={`w-14 h-14 bg-gray-800 rounded-lg border flex items-center justify-center transition-all duration-200
+                className={`w-13.5 h-13.5 bg-gray-800 rounded-lg border flex items-center justify-center transition-all duration-200
                 ${active ? "border-neon-blue" : "border-transparent"}`}>
                 <Image src={category.iconUrl} alt={category.label} width={30} height={30} className={`${active ? "filter-(--primary-blue-filter)" : ""}`} />
             </div>

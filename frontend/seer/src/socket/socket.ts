@@ -1,5 +1,5 @@
 import z from "zod";
-import { BalanceUpdateSchema, BetUpdateSchema, ChatMessageSchema, MarketUpdateSchema, OnlineUpdateSchema, WsMessage, WsMessageSchema } from "./messages";
+import { BalanceUpdateSchema, BetUpdateSchema, ChatMessageSchema, EmptyPayloadSchema, MarketUpdateSchema, OnlineUpdateSchema, WsMessage, WsMessageSchema } from "./messages";
 
 export interface WsClientOptions {
     url: string;                     // ws:// or wss:// endpoint
@@ -49,11 +49,15 @@ export class WSClient {
         };
 
         // Register schemas
-        this.registerSchema("balance", BalanceUpdateSchema);
+        // Replace by REGEX to match all subtypes
+        this.registerSchema("balance", BalanceUpdateSchema); // Begins with balance regex pattern
         this.registerSchema("markets_update", MarketUpdateSchema);
         this.registerSchema("bets", BetUpdateSchema);
         this.registerSchema("chat", ChatMessageSchema);
         this.registerSchema("online", OnlineUpdateSchema);
+        // Empty schemas, ack messages
+        this.registerSchema("ack", EmptyPayloadSchema);
+        this.registerSchema("rate", EmptyPayloadSchema);
 
         this.connect();
     }
@@ -136,6 +140,7 @@ export class WSClient {
             try {
                 parsed = JSON.parse(line);
             } catch (e) {
+                console.error("Failed to parse ws message", e);
                 this.log("invalid JSON", line);
                 continue;
             }
@@ -143,6 +148,7 @@ export class WSClient {
             const envRes = WsMessageSchema.safeParse(parsed);
 
             if (!envRes.success) {
+                console.log("Invalid envelope", envRes.error);
                 this.log("invalid envelope", envRes.error);
                 continue;
             }
@@ -166,6 +172,7 @@ export class WSClient {
             }
 
             const handlersType = this.handlers.get(type);
+            // console.log("Received message of type", type, "with payload", payloadRes.data);
             if (!handlersType) continue;
             for (const hand of handlersType) hand(payloadRes.data);
         }
@@ -209,10 +216,15 @@ export class WSClient {
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             try {
                 this.ws.send(obj);
-                console.log("WebSocket sent", obj);
             } catch (e) {
                 console.error("WebSocket send error", e);
             }
+        }
+    }
+
+    disonnect() {
+        if (this.ws) {
+            this.ws.close();
         }
     }
 

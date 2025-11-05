@@ -2,30 +2,34 @@ import { useWebSocket } from "@/app/WsProvider";
 import { getMarket, postBet } from "@/lib/api";
 import { MarketView } from "@/lib/definitions";
 import { useOdds } from "@/lib/hooks/useOdds";
-import { possiblePayoutPropForSpend } from "@/lib/lslmsr/lslmsr";
+import { possiblePayoutProbForSpend } from "@/lib/lslmsr/lslmsr";
 import { useBalanceQuery } from "@/lib/queries/useBalanceQuery";
 import { useUserQuery } from "@/lib/queries/useUserQuery";
 import { useDrawerStore } from "@/lib/stores/drawer";
 import { useModalStore } from "@/lib/stores/modal";
 import NumberFlow from '@number-flow/react';
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { UUID } from "crypto";
 import { Decimal } from "decimal.js";
 import { X } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
-import { AnimatedOdds } from "../AnimatedOdds";
 import Button from "../Button";
 import DrawerHeader from "../drawer/DrawerHeader";
+import { PriceChart } from "../markets/PriceChart";
 import MenuVertical from "../menu_small_vertical/MenuVertical";
+import { AnimatedOdds } from "../odds/AnimatedOdds";
 import PriceInput from "../PriceInput";
 
 export default function BetDrawer({ marketId, initialOutcomeId }: { marketId: UUID, initialOutcomeId: number }) {
 
-    const idempotencyKey = useRef(crypto.randomUUID());
+    const idempotencyKey = useRef(Math.random().toString()); // generate a unique key per bet attempt
 
     const openDrawer = useDrawerStore((state) => state.openDrawer);
+    const priceInputRef = useRef<HTMLInputElement>(null);
+
+    const queryClient = useQueryClient();
 
     const { data: market } = useQuery<MarketView>({
         queryKey: ['market', marketId],
@@ -39,6 +43,7 @@ export default function BetDrawer({ marketId, initialOutcomeId }: { marketId: UU
         mutationFn: postBet,
         onSuccess: () => {
             openDrawer("betSuccess", {});
+            queryClient.invalidateQueries({ queryKey: ['userBets'] });
         }
     });
 
@@ -75,9 +80,13 @@ export default function BetDrawer({ marketId, initialOutcomeId }: { marketId: UU
     const outcome = market?.outcomes.find(o => o.id === outcomeId);
     if (!market || !outcome) return null;
 
-    const hasInsufficientFunds = (balance && amount) ? balance.balance.lessThan(amount) : false;
 
-    const [possible, payout, probability] = (amount && !amount.isZero()) ? possiblePayoutPropForSpend(market, outcomeId, amount) : [false, new Decimal(0), new Decimal(0)];
+
+    const [possible, payout, probability] = (amount && !amount.isZero()) ? possiblePayoutProbForSpend(market, outcomeId, amount) : [false, new Decimal(0), new Decimal(0)];
+
+    const hasInsufficientFunds = (balance && amount) ? balance.balance.lessThan(amount) : false;
+    const betTooMuch = (amount && !amount.isZero()) && !possible
+    const isErrored = betTooMuch || hasInsufficientFunds;
 
     const handleClickBet = () => {
         if (!user) {
@@ -87,6 +96,9 @@ export default function BetDrawer({ marketId, initialOutcomeId }: { marketId: UU
 
         if (!market || !balance || !amount) return;
         if (!possible || hasInsufficientFunds) return;
+
+        // Unfocus the price input to ensure value is committed
+        priceInputRef.current?.blur();
 
         mutate({
             marketId: market.id,
@@ -106,27 +118,29 @@ export default function BetDrawer({ marketId, initialOutcomeId }: { marketId: UU
 
 
             <AnimatePresence key="bet-drawer-content">
-                <motion.div layout className="px-5 pt-4 space-y-4">
+                <motion.div layout className="px-5 pt-4 space-y-4 h-[calc(100vh-76px)] overflow-y-auto" style={{ scrollbarColor: "var(--color-gray-800) transparent", scrollbarWidth: "thin" }}>
 
 
 
-                    {hasInsufficientFunds &&
+                    {isErrored &&
                         <div className="flex flex-col gap-4">
                             {
                                 hasInsufficientFunds &&
                                 <ErrorDrawer>
-                                    Insufficient Funds
+                                    Insufficient funds
                                 </ErrorDrawer>
                             }
 
                             {
-                                hasInsufficientFunds &&
+                                betTooMuch &&
                                 <ErrorDrawer>
-                                    Insufficient Funds
+                                    Current bet amount too high for selected outcome
                                 </ErrorDrawer>
                             }
                         </div>
                     }
+
+
 
 
 
@@ -138,7 +152,7 @@ export default function BetDrawer({ marketId, initialOutcomeId }: { marketId: UU
 
                         <div>
 
-                            <div className="bg-gray-700 p-4.5 pb-7 flex flex-col gap-8 rounded-t-lg relative border border-gray-600 border-b-0">
+                            <div className="bg-gray-700 p-4.5 pb-7 flex flex-col gap-8 rounded-t-lg relative border border-transparent border-b-0">
                                 <div className="flex items-center gap-4">
                                     {market.imgKey && (
                                         <div className="flex-shrink-0 w-12 h-12 rounded-md overflow-hidden bg-gray-900">
@@ -164,7 +178,7 @@ export default function BetDrawer({ marketId, initialOutcomeId }: { marketId: UU
 
 
 
-                            <div className="bg-gray-800 p-4.5 pt-7 rounded-b-lg border border-t-0 border-gray-600 flex flex-col gap-6.5">
+                            <div className="bg-gray-800 p-4.5 pt-7 rounded-b-lg border border-t-0 border-transparent flex flex-col">
 
                                 <div className="flex items-center justify-between">
                                     <div className="w-50">
@@ -186,18 +200,19 @@ export default function BetDrawer({ marketId, initialOutcomeId }: { marketId: UU
                                     </span>
                                 </div>
 
+                                <PriceChart data={outcome.priceCharts?.find(chart => chart.timeframe === "24h")?.prices || []} />
 
-                                <div className="flex flex-col gap-1.5">
+                                <div className="flex flex-col gap-1.5 mb-6.5">
                                     <label className="text-sm font-medium text-gray-300">Amount</label>
                                     <PriceInput placeholder="Enter stake" onValueChange={(v) => {
                                         setAmount(v ? new Decimal(v) : undefined);
-                                    }} />
+                                    }} ref={priceInputRef} />
                                 </div>
 
                                 {/* Payout display */}
                                 <div className="flex flex-col gap-1.5">
-                                    <span className="text-sm text-gray-300 flex justify-between">
-                                        <span>To Win :</span> {
+                                    <div className="text-sm  flex justify-between">
+                                        <span className="text-gray-300">To Win :</span> {
 
                                             <NumberFlow
                                                 value={payout.toNumber()}
@@ -207,9 +222,10 @@ export default function BetDrawer({ marketId, initialOutcomeId }: { marketId: UU
                                             />
                                         }
 
-                                    </span>
-                                    <span className="text-sm text-gray-300 flex justify-between">
-                                        <span>Best Odd :</span> {
+                                    </div>
+                                    <div className="text-sm  flex justify-between">
+                                        <span className="text-gray-300">Best Odd :</span>
+                                        {
                                             <span className="text-green-400 font-bold">
                                                 {<AnimatedOdds
                                                     prob={probability}
@@ -218,7 +234,7 @@ export default function BetDrawer({ marketId, initialOutcomeId }: { marketId: UU
                                                 }
                                             </span>
                                         }
-                                    </span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -251,7 +267,7 @@ export default function BetDrawer({ marketId, initialOutcomeId }: { marketId: UU
 
 function ErrorDrawer({ children }: { children: React.ReactNode }) {
     return (
-        <motion.div className="text-sm font-bold bg-error py-3.5 px-5 rounded-lg flex items-center gap-2"
+        <motion.div className="text-sm font-bold bg-error py-3.5 px-5 rounded-lg flex items-center gap-3"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}

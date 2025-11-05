@@ -22,11 +22,13 @@ export default function MarketsDisplay({ categories }: { categories: Category[] 
         categorySlug,
         sort,
         status,
-        pageSize: 3,
+        pageSize: 6,
         page: 1,
     });
 
     const search = parsed.data;
+
+    console.log("Market search params:", search);
 
     const {
         data,
@@ -49,7 +51,7 @@ export default function MarketsDisplay({ categories }: { categories: Category[] 
     return (
 
         <>
-            <div className="flex flex-col gap-4 bg-gray-900 rounded-md py-4 lg:px-4 ">
+            <div className="flex flex-col gap-4 md:bg-gray-900 rounded-md md:py-4 lg:px-4 ">
 
                 {/* TODO Skeleton */}
                 {isLoading && <div>Loading markets...</div>}

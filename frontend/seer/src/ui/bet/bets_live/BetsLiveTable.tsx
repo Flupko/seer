@@ -15,7 +15,7 @@ export default function BetsLiveTable({ bets, parity }: { bets: BetUpdate[], par
 
     return (
         <table className="w-full">
-            <TableHead className="border-b-gray-600 border-b">
+            <TableHead className=" bg-grayscale-black z-10 relative [box-shadow:inset_0_-1px_0_theme(colors.gray.600)]">
                 <TableHeading className="hidden sm:table-cell">User</TableHeading>
                 <TableHeading>Market</TableHeading>
                 <TableHeading className="hidden sm:table-cell">Outcome</TableHeading>
@@ -24,24 +24,24 @@ export default function BetsLiveTable({ bets, parity }: { bets: BetUpdate[], par
             </TableHead>
 
             {/* Enable layout animation on the container that reflows */}
+
             <motion.tbody layout>
-                <AnimatePresence initial={false}>
+                <AnimatePresence initial={false} mode="sync">
                     {bets.map((bet, index) => (
                         // Animate position changes and mount/unmount
                         <motion.tr
-                            key={bet.id}
                             layout
-                            initial={{ y: -12, opacity: 0 }}
-                            animate={{ y: 0, opacity: 1 }}
-                            exit={{ y: 12, opacity: 0 }}
-                            transition={{ duration: 0.2, ease: "easeOut" }}
-                            style={{ position: "relative" }} // helps transforms on table rows
+                            key={bet.id}
+                            initial={{ y: -49 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 52 }}
+                            transition={{ type: "spring", stiffness: 300, damping: 30 }}
                             className="hover:bg-gray-900 children:w-full select-none"
                         >
                             <TableCell className="w-[15%] hidden sm:table-cell" current={index % 2 === parity}>
                                 {bet.user ?
                                     <span className="line-clamp-1 hover:text-gray-400 duration-200 w-fit active:scale-95 cursor-pointer"
-                                        onClick={() => setParams({ modal: 'user', username: bet.user?.username })}>
+                                        onClick={() => setParams({ show: 'user', username: bet.user?.username })}>
                                         {bet.user.username}
                                     </span> :
                                     <span className="text-gray-400 flex items-center gap-2">

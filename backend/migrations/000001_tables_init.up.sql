@@ -1,4 +1,5 @@
 CREATE EXTENSION IF NOT EXISTS citext WITH SCHEMA public;
+CREATE EXTENSION IF NOT EXISTS timescaledb CASCADE;
 
 CREATE TABLE users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -12,6 +13,8 @@ CREATE TABLE users (
     role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
     profile_image_key TEXT,
 
+    total_wagered NUMERIC(27, 12) NOT NULL DEFAULT 0,
+
     hidden BOOLEAN NOT NULL DEFAULT FALSE,
     receive_marketing_emails BOOLEAN NOT NULL DEFAULT TRUE,
 
@@ -24,6 +27,8 @@ CREATE TABLE users (
     CONSTRAINT users_unique_provider_user_id UNIQUE (provider_id, provider_user_id),
     CONSTRAINT users_providers_credentials_password CHECK(provider_id != 'credentials' OR password_hash IS NOT NULL)
 );
+
+
 
 CREATE TABLE sessions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -278,6 +283,8 @@ CREATE TABLE chat_messages (
 CREATE INDEX chat_messages_user ON chat_messages(user_id);
 CREATE INDEX idx_chat_messages_room_time ON chat_messages(chat_id, created_at DESC);
 
+INSERT INTO chat_rooms (label, slug) VALUES ('Global', 'global');
+
 -----------------------------------------------------------------------------------------------------------
 
 CREATE TABLE markets (
@@ -285,7 +292,7 @@ CREATE TABLE markets (
     name TEXT NOT NULL,
     description TEXT NOT NULL,
     currency TEXT NOT NULL CHECK (currency IN ('USDT')),
-    status TEXT NOT NULL CHECK (status IN ('draft', 'opened', 'paused', 'settling', 'resolved', 'cancelled')),
+    status TEXT NOT NULL CHECK (status IN ('draft', 'opened', 'paused', 'pending', 'resolved', 'cancelled')),
     img_key TEXT NOT NULL,
     slug TEXT NOT NULL UNIQUE,
     
@@ -438,11 +445,101 @@ CREATE TABLE bet_cashouts (
 -----------------------------------------------------------------------------------------------------------
 
 CREATE TABLE outcome_price_history (
-    id BIGSERIAL PRIMARY KEY,
+    id BIGSERIAL,
     outcome_id BIGINT NOT NULL REFERENCES outcomes(id),
     price NUMERIC(13, 12) NOT NULL,
-    time_recorded TIMESTAMPTZ NOT NULL DEFAULT now()
+    time TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (time, id)     
 );
+
+SELECT create_hypertable('outcome_price_history', by_range('time', INTERVAL '1 day'));
+
+-------------------------------------------------------------------------------------------
+-- 5m price materialized view
+CREATE MATERIALIZED VIEW outcome_price_5m 
+WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
+SELECT
+    outcome_id,
+    time_bucket(INTERVAL '5 minutes', time) AS bucket,
+    LAST(price, time) AS close_price,
+    AVG(price) AS avg_price
+FROM outcome_price_history
+GROUP BY outcome_id, bucket
+WITH NO DATA;
+
+-- Add continuous aggregate policy to refresh every 5 minutes, keeping 1 day of data behind real time
+SELECT add_continuous_aggregate_policy('outcome_price_5m',
+    start_offset => INTERVAL '1 day',
+    end_offset => INTERVAL '0 minutes',
+    schedule_interval => INTERVAL '5 minutes'
+);
+
+SELECT add_retention_policy('outcome_price_5m', INTERVAL '1 day');
+
+-------------------------------------------------------------------------------------------
+-- 1h price materialized view
+CREATE MATERIALIZED VIEW outcome_price_1h
+WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
+SELECT
+    outcome_id,
+    time_bucket(INTERVAL '1 hour', time) AS bucket,
+    LAST(price, time) AS close_price,
+    AVG(price) AS avg_price
+FROM outcome_price_history
+GROUP BY outcome_id, bucket
+WITH NO DATA;
+
+SELECT add_continuous_aggregate_policy('outcome_price_1h',
+    start_offset => INTERVAL '7 days',
+    end_offset => INTERVAL '1 hour',
+    schedule_interval => INTERVAL '1 hour'
+);
+
+SELECT add_retention_policy('outcome_price_1h', INTERVAL '7 days');
+
+-------------------------------------------------------------------------------------------
+-- 4h price materialized view
+CREATE MATERIALIZED VIEW outcome_price_4h
+WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
+SELECT
+    outcome_id,
+    time_bucket(INTERVAL '4 hours', time) AS bucket,
+    LAST(price, time) AS close_price,
+    AVG(price) AS avg_price
+FROM outcome_price_history
+GROUP BY outcome_id, bucket
+WITH NO DATA;
+
+SELECT add_continuous_aggregate_policy('outcome_price_4h',
+    start_offset => INTERVAL '30 days',
+    end_offset => INTERVAL '4 hours',
+    schedule_interval => INTERVAL '4 hours'
+);
+
+SELECT add_retention_policy('outcome_price_4h', INTERVAL '30 days');
+
+-------------------------------------------------------------------------------------------
+-- 24h price materialized view
+CREATE MATERIALIZED VIEW outcome_price_24h
+WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
+SELECT
+    outcome_id,
+    time_bucket(INTERVAL '24 hours', time) AS bucket,
+    LAST(price, time) AS close_price,
+    AVG(price) AS avg_price
+FROM outcome_price_history
+GROUP BY outcome_id, bucket
+WITH NO DATA;
+
+SELECT add_continuous_aggregate_policy('outcome_price_24h',
+    start_offset => INTERVAL '2 years',
+    end_offset => INTERVAL '24 hours',
+    schedule_interval => INTERVAL '24 hours'
+);
+
+-- no retention policy on 24h view, keep all data
+
+
 
 
 -----------------------------------------------------------------------------------------------------------

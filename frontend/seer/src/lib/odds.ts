@@ -1,4 +1,5 @@
 import { Decimal } from "decimal.js";
+import { gcd } from "./lslmsr/math_util";
 
 export type OddsFormat = 'decimal' | 'american' | 'fractional' | 'percent'
 
@@ -14,19 +15,16 @@ export function formatOdds(prob: Decimal, format: OddsFormat): string {
             return `+${new Decimal(1).minus(prob).div(prob).mul(100).toFixed(0)}`;
 
         case 'fractional':
-            const decimal = new Decimal(1).div(prob);
-            const decimalMinusOne = decimal.minus(1);
-            const numerator = decimalMinusOne.mul(100);
-            const denominator = new Decimal(100);
-            // Simplify the fraction
-            const gcd = (a: Decimal, b: Decimal): Decimal => {
-                if (b.equals(0)) {
-                    return a;
-                }
-                return gcd(b, a.mod(b));
-            }
-            const divisor = gcd(numerator, denominator);
-            return `${numerator.div(divisor).toFixed(0)}/${denominator.div(divisor).toFixed(0)}`;
+
+            const maxDen = 100
+            const f = new Decimal(1).div(prob).minus(1);
+
+            const num = f.mul(maxDen).round();
+            const den = new Decimal(maxDen);
+
+            const g = gcd(num.abs(), den).abs();
+
+            return `${num.div(g).toNumber()}/${den.div(g).toNumber()}`
 
         case 'percent':
             // Return percentage with no decimal places

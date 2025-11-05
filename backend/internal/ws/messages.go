@@ -26,9 +26,10 @@ type OutcomeUpdate struct {
 }
 
 type MarketUpdate struct {
-	ID       uuid.UUID       `json:"marketID"`
-	Version  int64           `json:"marketVersion"`
-	Outcomes []OutcomeUpdate `json:"outcomes"`
+	ID          uuid.UUID           `json:"marketID"`
+	Version     int64               `json:"marketVersion"`
+	TotalVolume *numeric.BigDecimal `json:"totalVolume"`
+	Outcomes    []OutcomeUpdate     `json:"outcomes"`
 }
 
 type ChatMessage struct {
@@ -63,6 +64,7 @@ type WSError struct {
 }
 
 const (
+	ChatUpdate        = "chat"
 	ChatRoomPrefix    = "chat:"
 	MarketsUpdateRoom = "markets_update"
 	BetsLatestRoom    = "bets:latest"

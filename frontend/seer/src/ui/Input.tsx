@@ -1,20 +1,24 @@
 
-export type InputProps = React.InputHTMLAttributes<HTMLInputElement> & {
+export type InputProps = {
     leftEl?: React.ReactNode;
     rightEl?: React.ReactNode;
     className?: string;
     hasError?: boolean;
-};
+    bg?: string;
+} & React.InputHTMLAttributes<HTMLInputElement>;
 
-export default function Input({ leftEl, rightEl, hasError, className, ...rest }: InputProps) {
+export default function Input({ leftEl, rightEl, hasError, className, bg = "bg-gray-800", ...rest }: InputProps) {
+
 
     return (
         <div className="flex justify-between items-start relative w-full gap-1">
             {leftEl && <span className="flex justify-center items-center absolute h-full left-3">{leftEl}</span>}
             <input  {...rest}
-                className={`input-base w-full bg-gray-800 flex-nowrap rounded-md text-sm h-12 py-3 
+
+                className={`input-base w-full ${bg} flex-nowrap rounded-md text-sm h-12 py-3 
                 ${leftEl ? "pl-9" : "pl-4"} 
                 ${rightEl ? "pr-11" : "pr-3"} 
+                disabled:placeholder:text-gray-500
                 border-[1px] outline-none focus:border-primary-blue ${hasError ? "border-red-500" : "border-transparent"} placeholder:text-gray-400 text-white`} />
             {rightEl && <span className="flex justify-center items-center absolute h-full right-3">{rightEl}</span>}
         </div>

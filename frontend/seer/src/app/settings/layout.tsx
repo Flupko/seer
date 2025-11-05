@@ -2,6 +2,7 @@
 export const expexperimental_ppr = true
 
 import { getSessions, getUserPreferences } from "@/lib/api";
+import Heading from "@/ui/Heading";
 import MainWrapper from "@/ui/MainWrapper";
 import MenuHorizontal from "@/ui/menu_horizontal/MenuHorizontal";
 import MenuHorizontalItem from "@/ui/menu_horizontal/MenuHorizontalItem";
@@ -17,7 +18,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
     return (
         <MainWrapper>
             <section className="min-h-screen text-white">
-                <h1 className="text-2xl font-extrabold mb-6 text-white">Settings</h1>
+                <Heading className="mb-6">Settings</Heading>
 
                 <MenuHorizontal>
 

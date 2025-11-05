@@ -1,6 +1,8 @@
 import { useUserQuery } from "@/lib/queries/useUserQuery";
 import { useDrawerStore } from "@/lib/stores/drawer";
 import { Bell, MessageCircleMore, Search } from "lucide-react";
+import Link from "next/link";
+import BetSlip from "../../../public/icons/bet_slip2.svg";
 import Balance from "../Balance";
 import ToolTip from "../ToolTip";
 import UserPart from "./UserPart";
@@ -22,15 +24,22 @@ export default function NavbarLogged() {
 
             <ul className="flex gap-2.5 justify-self-end">
 
-                <li>
+                <li className="hidden lg:block">
+                    <Link className="contents" href="/mybets">
+                        <ToolTip Icon={BetSlip} bgFull />
+                    </Link>
+
+                </li>
+
+                <li className="hidden lg:block">
                     <ToolTip Icon={Bell} bgFull />
                 </li>
 
-                <li>
+                <li className="hidden lg:block">
                     <ToolTip Icon={Search} bgFull />
                 </li>
 
-                <li onClick={() => openDrawer("chat")}>
+                <li className="hidden lg:block" onClick={() => openDrawer("chat")}>
                     <ToolTip Icon={MessageCircleMore} bgFull />
                 </li>
 

@@ -92,11 +92,19 @@ func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skip
 	m.volume,
 	m.created_at, m.close_time, 
 	m.outcome_sort,
+	mr.id, mr.market_id, mr.winning_outcome_id, mr.created_at,
 	m.version
 	FROM markets m
+	LEFT JOIN market_resolutions mr ON m.id = mr.market_id
 	WHERE ($1 = '' OR to_tsvector('simple', m.name || ' ' || m.description) @@ to_tsquery('simple', $1))
 	AND ($2::TEXT IS NULL OR EXISTS(SELECT 1 FROM categories_market cm JOIN categories c ON cm.category_id = c.id WHERE cm.market_id = m.id AND c.slug = $2))
-	AND ($3::TEXT IS NULL OR m.status = $3)
+	AND ($3::TEXT IS NULL OR 
+	CASE
+		WHEN $3 = 'opened' THEN m.status = 'opened' AND (m.close_time IS NULL OR m.close_time > NOW())
+		WHEN $3 = 'pending' THEN m.status = 'pending' OR (m.status = 'opened' AND m.close_time IS NOT NULL AND m.close_time <= NOW())
+		ELSE $3 = m.status
+	END
+	)
 	ORDER BY %s
 	LIMIT $4 OFFSET $5
 	`, sq.GetOrderBy())
@@ -113,17 +121,34 @@ func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skip
 	for rows.Next() {
 		m := &MarketView{}
 
+		var resolutionID *int64
+		var resolutionMarketID *uuid.UUID
+		var resolutionWinningOutcomeID *int64
+		var resolutionCreatedAt *time.Time
+
 		err = rows.Scan(
 			&totalCount,
 			&m.ID, &m.Name, &m.Description, &m.ImgKey, &m.Slug,
 			&m.Status,
 			&m.HouseLedgerAccountID, &m.Q0Seeding, &m.Alpha, &m.Fee, &m.CapPrice,
 			&m.Volume,
-			&m.CreatedAt, &m.CloseTime, &m.OutcomeSort, &m.Version,
+
+			&m.CreatedAt, &m.CloseTime, &m.OutcomeSort,
+			&resolutionID, &resolutionMarketID, &resolutionWinningOutcomeID, &resolutionCreatedAt,
+			&m.Version,
 		)
 
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed scanning market: %w", err)
+		}
+
+		if resolutionID != nil {
+			m.Resolution = &MarketResolution{
+				ID:               *resolutionID,
+				MarketID:         *resolutionMarketID,
+				WinningOutcomeID: *resolutionWinningOutcomeID,
+				CreatedAt:        *resolutionCreatedAt,
+			}
 		}
 
 		markets = append(markets, m)
@@ -162,6 +187,27 @@ func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skip
 
 	}
 
+	// Retrieve prices
+	outcomeIDs := []int64{}
+	for _, m := range markets {
+		for _, o := range m.Outcomes {
+			outcomeIDs = append(outcomeIDs, o.ID)
+		}
+	}
+
+	priceChartsByOutcome, err := qm.retrievePricesMarket(ctx, outcomeIDs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to retrieve price charts: %w", err)
+	}
+
+	for _, m := range markets {
+		for i, o := range m.Outcomes {
+			if priceCharts, ok := priceChartsByOutcome[o.ID]; ok {
+				m.Outcomes[i].PriceCharts = priceCharts
+			}
+		}
+	}
+
 	// Query categories
 	categoriesByMarket, err := qm.getCategoriesForMarkets(ctx, marketIDs)
 	if err != nil {
@@ -190,7 +236,7 @@ func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skip
 
 }
 
-func (qm *QueryManager) getOutcomesForMarkets(ctx context.Context, marketIDs []uuid.UUID) (map[uuid.UUID][]Outcome, error) {
+func (qm *QueryManager) getOutcomesForMarkets(ctx context.Context, marketIDs []uuid.UUID) (map[uuid.UUID][]OutcomeView, error) {
 	query := `
         SELECT o.market_id, o.id, o.name, o.position
         FROM outcomes o
@@ -205,10 +251,10 @@ func (qm *QueryManager) getOutcomesForMarkets(ctx context.Context, marketIDs []u
 
 	defer rows.Close()
 
-	outcomesByMarket := make(map[uuid.UUID][]Outcome)
+	outcomesByMarket := make(map[uuid.UUID][]OutcomeView)
 
 	for rows.Next() {
-		var o Outcome
+		var o OutcomeView
 		var marketID uuid.UUID
 		if err := rows.Scan(&marketID, &o.ID, &o.Name, &o.Position); err != nil {
 			return nil, fmt.Errorf("failed to scan outcome: %w", err)
@@ -266,17 +312,26 @@ func (qm *QueryManager) GetMarketByID(ctx context.Context, marketID uuid.UUID) (
 	m.volume,
 	m.created_at, m.close_time, 
 	m.outcome_sort,
+	mr.id, mr.market_id, mr.winning_outcome_id, mr.created_at,
 	m.version
 	FROM markets m
+	LEFT JOIN market_resolutions mr ON m.id = mr.market_id
 	WHERE m.id = $1`
 
 	m := &MarketView{}
+	var resolutionID *int64
+	var resolutionMarketID *uuid.UUID
+	var resolutionWinningOutcomeID *int64
+	var resolutionCreatedAt *time.Time
+
 	err := qm.db.QueryRow(ctx, query, marketID).Scan(
-		m.ID, &m.Name, &m.Description, &m.ImgKey, &m.Slug,
+		&m.ID, &m.Name, &m.Description, &m.ImgKey, &m.Slug,
 		&m.Status,
 		&m.HouseLedgerAccountID, &m.Q0Seeding, &m.Alpha, &m.Fee, &m.CapPrice,
 		&m.Volume,
-		&m.CreatedAt, &m.CloseTime, &m.OutcomeSort, &m.Version,
+		&m.CreatedAt, &m.CloseTime, &m.OutcomeSort,
+		&resolutionID, &resolutionMarketID, &resolutionWinningOutcomeID, &resolutionCreatedAt,
+		&m.Version,
 	)
 
 	if err != nil {
@@ -285,6 +340,15 @@ func (qm *QueryManager) GetMarketByID(ctx context.Context, marketID uuid.UUID) (
 			return nil, ErrMarketNotFound
 		default:
 			return nil, fmt.Errorf("failed to query market by id: %w", err)
+		}
+	}
+
+	if resolutionID != nil {
+		m.Resolution = &MarketResolution{
+			ID:               *resolutionID,
+			MarketID:         *resolutionMarketID,
+			WinningOutcomeID: *resolutionWinningOutcomeID,
+			CreatedAt:        *resolutionCreatedAt,
 		}
 	}
 
@@ -302,7 +366,94 @@ func (qm *QueryManager) GetMarketByID(ctx context.Context, marketID uuid.UUID) (
 	}
 	m.Categories = categoriesByMarket[m.ID]
 
+	// Retrieve price charts
+	outcomeIDs := make([]int64, 0, len(m.Outcomes))
+	for _, o := range m.Outcomes {
+		outcomeIDs = append(outcomeIDs, o.ID)
+	}
+
+	priceChartsByOutcome, err := qm.retrievePricesMarket(ctx, outcomeIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to retrieve price charts: %w", err)
+	}
+
+	for i, o := range m.Outcomes {
+		if priceCharts, ok := priceChartsByOutcome[o.ID]; ok {
+			m.Outcomes[i].PriceCharts = priceCharts
+		}
+	}
+
 	return m, nil
+}
+
+func (qm *QueryManager) retrievePricesMarket(ctx context.Context, outcomes []int64) (map[int64][]PriceChart, error) {
+
+	priceChartsOutcomes := make(map[int64][]PriceChart)
+
+	// Validate timeframe for security
+	for _, outcomeID := range outcomes {
+
+		for timeframe, spec := range pricesTimeframeSafeMap {
+
+			var startTime time.Time
+
+			err := qm.db.QueryRow(ctx, fmt.Sprintf(`
+			SELECT bucket
+			FROM %s
+			WHERE outcome_id = $1
+			ORDER BY bucket ASC
+			LIMIT 1
+			`, spec.table), outcomeID).Scan(&startTime)
+
+			if err != nil {
+				return nil, fmt.Errorf("failed to query price history start time: %w", err)
+			}
+
+			// If no data, skip
+			if startTime.IsZero() {
+				continue
+			}
+
+			query := fmt.Sprintf(`SELECT
+			locf(last(close_price, bucket)) AS close_price,
+			time_bucket_gapfill($1, bucket, start => $2, finish => NOW()) AS date
+			FROM %s
+			WHERE outcome_id = $3
+			GROUP BY date`, spec.table)
+
+			prices := []PriceChartDataPoint{}
+
+			rows, err := qm.db.Query(ctx, query, spec.duration, startTime, outcomeID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to query price history: %w", err)
+			}
+
+			defer rows.Close()
+			for rows.Next() {
+				var pricePoint PriceChartDataPoint
+				if err := rows.Scan(&pricePoint.Price, &pricePoint.Date); err != nil {
+					return nil, fmt.Errorf("failed to scan price history row: %w", err)
+				}
+				pricePoint.Timestamp = pricePoint.Date.Unix()
+				prices = append(prices, pricePoint)
+			}
+
+			if rows.Err() != nil {
+				return nil, fmt.Errorf("error iterating price history rows: %w", rows.Err())
+			}
+
+			priceChart := PriceChart{
+				Timeframe: timeframe,
+				Prices:    prices,
+			}
+			priceChartsOutcomes[outcomeID] = append(priceChartsOutcomes[outcomeID], priceChart)
+
+		}
+
+	}
+
+	return priceChartsOutcomes, nil
+
 }
 
 func (qm *QueryManager) buildCacheKey(sq *SearchQuery) string {

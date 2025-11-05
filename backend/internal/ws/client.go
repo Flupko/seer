@@ -74,6 +74,8 @@ func (c *Client) Start(router *SocketRouter) {
 func (c *Client) Send(payload []byte) {
 	select {
 	case c.send <- payload:
+	case <-c.Ctx.Done():
+		return
 	default:
 		c.Disconnect()
 	}

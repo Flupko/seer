@@ -32,6 +32,7 @@ type TransactionManager struct {
 
 type BetRequest struct {
 	LedgerAccountID uuid.UUID
+	UserID          uuid.UUID
 	MarketID        uuid.UUID
 	OutcomeID       int64
 	BetAmount       *numeric.BigDecimal
@@ -185,6 +186,8 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) (*Be
 	}
 
 	if actualGain.Cmp(&r.MinWantedGain.Big) < 0 {
+		fmt.Println("invalid quoted gain")
+		fmt.Println("actual gain", actualGain.String(), "min wanted gain", r.MinWantedGain.String())
 		return nil, ErrInvalidQuotedGain
 	}
 
@@ -245,6 +248,16 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) (*Be
 		return nil, ErrMarketNotFound
 	}
 
+	// Update the user's total wagered amount
+	query = `UPDATE users
+	SET total_wagered = total_wagered + $1
+	WHERE id = $2`
+
+	_, err = tx.Exec(ctx, query, r.BetAmount, r.UserID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to update user's total wagered: %w", err)
+	}
+
 	return bet, tx.Commit(ctx)
 
 }
@@ -259,6 +272,7 @@ type CashoutRequest = struct {
 func (tm *TransactionManager) CashoutBet(ctx context.Context, r *CashoutRequest) (*BetCashout, error) {
 
 	// Retrieve the cashed out bet
+	// Check if wasn't already cashed out
 	query := `
 	SELECT m.id, b.id, b.ledger_account_id, b.ledger_transfer_id, b.outcome_id, b.payout, b.total_price_paid, b.fee_applied, b.fee_paid, b.avg_price, b.placed_at, b.idempotency_key
 	FROM bets b
@@ -266,7 +280,7 @@ func (tm *TransactionManager) CashoutBet(ctx context.Context, r *CashoutRequest)
 	JOIN markets m ON o.market_id = m.id
 	JOIN ledger_accounts la ON b.ledger_account_id = la.id
 	JOIN users u ON la.user_id = u.id
-	WHERE b.id = $1 AND u.id = $2
+	WHERE b.id = $1 AND u.id = $2 AND NOT EXISTS (SELECT 1 FROM bet_cashouts bc WHERE bc.bet_id = b.id)
 	`
 
 	cashedBet := &Bet{}
@@ -350,7 +364,8 @@ func (tm *TransactionManager) cashoutBetOnce(ctx context.Context, marketID uuid.
 	var qVec []*numeric.BigDecimal
 
 	query := `
-	SELECT m.id, m.house_ledger_account_id, m.alpha, m.fee, m.version,
+	SELECT m.id, m.house_ledger_account_id, m.alpha, m.fee, m.cap_price,
+	m.version,
 	array_agg(o.quantity ORDER BY o.id) AS q_vec,
 	array_agg(o.id ORDER BY o.id) AS outcome_ids
 	FROM markets m
@@ -358,7 +373,7 @@ func (tm *TransactionManager) cashoutBetOnce(ctx context.Context, marketID uuid.
 	WHERE m.id = $1 AND m.status = 'opened' AND (m.close_time IS NULL OR m.close_time > now())
 	GROUP BY m.id`
 
-	if err = tx.QueryRow(ctx, query, marketID).Scan(&m.ID, &m.HouseLedgerAccountID, &m.Alpha, &m.Fee, &m.Version, &qVec, &outcomesIDs); err != nil {
+	if err = tx.QueryRow(ctx, query, marketID).Scan(&m.ID, &m.HouseLedgerAccountID, &m.Alpha, &m.Fee, &m.CapPrice, &m.Version, &qVec, &outcomesIDs); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrMarketNotFound
 		}
@@ -377,6 +392,7 @@ func (tm *TransactionManager) cashoutBetOnce(ctx context.Context, marketID uuid.
 
 	// Recompute cashout gain for the user
 	// cashedBet.Payout = number of shares bought
+	fmt.Println("CAP PRICE", m.CapPrice)
 	possible, cashoutGain, err := PossibleGainForSell(qVec, idx, m.Alpha, cashedBet.Payout, m.CapPrice)
 	if err != nil {
 		return nil, fmt.Errorf("failed to recompute cashout gain: %w", err)
@@ -473,20 +489,17 @@ func (tm *TransactionManager) SettleMarket(ctx context.Context, marketID uuid.UU
 		return errors.New("winning outcome doesn't belong to market")
 	}
 
-	// Change the market status to 'settling' (should have been done earlier but re-done here for consistance)
-
 	var houseAccountID uuid.UUID
-	query := `UPDATE markets 
-	SET status = 'settling' 
+	query := `SELECT house_ledger_account_id FROM markets
 	WHERE id = $1 AND status IN ('opened','paused')
-	RETURNING house_ledger_account_id
 	`
+
 	err = tx.QueryRow(ctx, query, marketID).Scan(&houseAccountID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrMarketNotFound
 		}
-		return fmt.Errorf("failed to change market status to settling: %w", err)
+		return fmt.Errorf("failed to get house ledger account id: %w", err)
 	}
 
 	// We have to move funds from the house account
@@ -583,12 +596,9 @@ func (tm *TransactionManager) CancelMarket(ctx context.Context, marketID uuid.UU
 
 	defer tx.Rollback(ctx)
 
-	// Change the market status to 'settling' (should have been done earlier but re-done here for consistency)
 	var houseAccountID uuid.UUID
-	query := `UPDATE markets 
-	SET status = 'settling' 
+	query := `SELECT house_ledger_account_id FROM markets
 	WHERE id = $1 AND status IN ('opened','paused')
-	RETURNING house_ledger_account_id
 	`
 
 	err = tx.QueryRow(ctx, query, marketID).Scan(&houseAccountID)
@@ -596,7 +606,7 @@ func (tm *TransactionManager) CancelMarket(ctx context.Context, marketID uuid.UU
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrMarketNotFound
 		}
-		return fmt.Errorf("failed to change market status to settling: %w", err)
+		return fmt.Errorf("failed to get house ledger account id: %w", err)
 	}
 
 	// Insert the cancellation row

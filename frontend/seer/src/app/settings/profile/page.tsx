@@ -2,6 +2,7 @@
 
 import { useUserQuery } from "@/lib/queries/useUserQuery";
 import ContainerSmall from "@/ui/containers/ContainerSmall";
+import { UserStats } from "@/ui/profile/UserStats";
 import ProfilePicture from "@/ui/ProfilePicture";
 import { CircleAlert, CircleCheck, Edit } from "lucide-react";
 import Container from "../Container";
@@ -12,7 +13,7 @@ export default function SettingsPage() {
 
     return (
         <Container title="Profile settings">
-            <div className="flex flex-col gap-6 max-w-xl">
+            <div className="flex flex-col gap-6 max-w-lg">
                 <ContainerSmall>
 
                     <div className="flex justify-between items-center">
@@ -41,8 +42,7 @@ export default function SettingsPage() {
                     </div>
                 </ContainerSmall>
 
-                <ContainerSmall>
-                </ContainerSmall>
+                <UserStats createdAt={user.createdAt} totalWagered={user.totalWagered} />
             </div>
         </Container>
     )

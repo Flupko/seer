@@ -6,6 +6,7 @@ import { useMediaQuery } from "usehooks-ts";
 import ProfileCompletionModal from "../auth/ProfileCompletionModal";
 import ChangePasswordModal from "../profile/ChangePasswordModal";
 import SetPasswordModal from "../profile/SetPasswordModal";
+import UserInfoModal from "../profile/UserInfoModal";
 import ModalDesktop from "./ModalDesktop";
 import ModalMobile from "./ModalMobile";
 
@@ -16,6 +17,7 @@ export const modalComponents: Record<Exclude<ModalType, null>, { content: React.
   profileCompletion: { content: ProfileCompletionModal, height: "", desktopWidth: "max-w-[30.5rem]" },
   changePassword: { content: ChangePasswordModal, height: "", desktopWidth: "max-w-[30.5rem]" },
   setPassword: { content: SetPasswordModal, height: "", desktopWidth: "max-w-[30.5rem]" },
+  user: { content: UserInfoModal, height: "", desktopWidth: "max-w-[27rem]" }, // Placeholder, replace with actual User modal component
 };
 
 export function ModalContainer() {

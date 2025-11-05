@@ -73,7 +73,7 @@ func main() {
 	e := echo.New()
 
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		AllowOrigins:     []string{"http://localhost:3000"},
+		AllowOrigins:     []string{"http://localhost:3000", "http://192.168.1.61:3000"},
 		AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept},
 		AllowCredentials: true,
 	}))
@@ -146,8 +146,8 @@ func main() {
 	wsRouter.AddRouteHandler("subscribe:chat", wsHandlers.HandleJoinChatRoom)
 	wsRouter.AddRouteHandler("leave:chat", wsHandlers.HandleLeaveChatRoom)
 
-	wsRouter.AddRouteHandler("subscribe:online_count", wsHandlers.HandleJoinOnlineRoom)
-	wsRouter.AddRouteHandler("leave:online_count", wsHandlers.HandleLeaveOnlineRoom)
+	wsRouter.AddRouteHandler("subscribe:online", wsHandlers.HandleJoinOnlineRoom)
+	wsRouter.AddRouteHandler("leave:online", wsHandlers.HandleLeaveOnlineRoom)
 
 	wsRouter.AddRouteHandler("send:chat", wsHandlers.RequireAuthentication(wsHandlers.HandleSendMessage))
 
@@ -207,6 +207,7 @@ func main() {
 	// User related
 
 	e.GET("/user/me", authMiddleware.Authenticate(userHandler.UserMe))
+	e.GET("/user/profile/:username", userHandler.GetUserProfile)
 	e.GET("/user/prefs", authMiddleware.RequireAuthentication(userHandler.GetPreferences))
 	e.PATCH("/user/prefs", authMiddleware.RequireAuthentication(userHandler.UpdatePreferences))
 	e.GET("/user/balance/:currency", authMiddleware.RequireAuthentication(transactionHandler.GetBalance))

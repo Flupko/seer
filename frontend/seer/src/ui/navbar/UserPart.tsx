@@ -4,7 +4,7 @@ import { useMutation } from "@tanstack/react-query"
 import { Headphones, LogOut, Settings, Trophy, UserRound, Wallet } from "lucide-react"
 import { AnimatePresence } from "motion/react"
 import Link from "next/link"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import MenuLarge from "../menu_large_vertical/MenuLarge"
 import MenuLargeItem from "../menu_large_vertical/MenuLargeItem"
 import ProfilePicture from "../ProfilePicture"
@@ -16,13 +16,34 @@ export default function MenuLogged() {
     const [menuClicked, setMenuClicked] = useState(false)
     const [menuHovering, setMenuHovering] = useState(false)
 
+    const wrapRef = useRef<HTMLLIElement | null>(null);
+
     const closeMenu = () => {
         setMenuClicked(false)
         setMenuHovering(false)
     }
 
+    useEffect(() => {
+        const onDown = (e: MouseEvent | PointerEvent) => {
+            if (!wrapRef.current) return;
+            if (!wrapRef.current.contains(e.target as Node)) closeMenu();
+        };
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === "Escape") closeMenu();
+        };
+        document.addEventListener("mousedown", onDown);
+        document.addEventListener("pointerdown", onDown);
+        document.addEventListener("keydown", onKey);
+        return () => {
+            document.removeEventListener("mousedown", onDown);
+            document.removeEventListener("pointerdown", onDown);
+            document.removeEventListener("keydown", onKey);
+        };
+    }, []);
+
     return (
         <li
+            ref={wrapRef}
             className="relative"
             onMouseEnter={() => setMenuHovering(true)}
             onMouseLeave={() => setMenuHovering(false)}

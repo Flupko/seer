@@ -24,7 +24,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
   }
 
   return (
-    <div className="pt-4 lg:pt-6 transition-all">
+    <div className="pt-3 lg:pt-6 transition-all">
       <Header activeCategory={category} />
       <MarketsDisplay categories={categories} />
     </div>
