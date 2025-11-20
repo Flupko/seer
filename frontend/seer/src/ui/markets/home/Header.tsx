@@ -29,7 +29,7 @@ export function Header({ activeCategory }: { activeCategory: Category }) {
                 <div className="flex items-center gap-2.5 md:gap-3">
 
                     <div className="md:w-38">
-                        <MenuVertical leftPart={<Clock className="w-4 h-4 text-gray-500" strokeWidth={1.7} />}
+                        <MenuVertical leftPart={<Clock className="w-4 h-4 text-gray-500 mt-0.5" strokeWidth={2.5} />}
                             choices={statusOptions}
                             value={status}
                             onChange={(value) => setParams({ status: value })}
@@ -40,7 +40,7 @@ export function Header({ activeCategory }: { activeCategory: Category }) {
                     </div>
 
                     <div className="md:w-40">
-                        <MenuVertical leftPart={<ArrowDownNarrowWide className="w-4 h-4 text-gray-500" strokeWidth={1.7} />}
+                        <MenuVertical leftPart={<ArrowDownNarrowWide className="w-4 h-4 text-gray-500 mt-0.5" strokeWidth={2.5} />}
                             choices={sortOptions}
                             value={sort}
                             onChange={(value) => setParams({ sort: value })}

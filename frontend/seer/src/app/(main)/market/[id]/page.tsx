@@ -148,91 +148,115 @@ export default function MarketPage({
 
 
 
-                <div className="mt-6">
+                <>
+                    <div className="mt-6">
+                        <div
+                            className="shrink-0 self-stretch h-px w-full bg-gray-700"
+                        />
 
-                    <div
-                        className="shrink-0 self-stretch h-px w-full bg-gray-700"
-                    />
+                        <div className="h-10 items-center gap-2 justify-between w-full text-[11px] hidden md:flex">
+                            <div className="flex-1">
+                                <span className="text-gray-400 font-bold pl-0.5 tracking-wider">OUTCOME</span>
+                            </div>
+                            <div className="flex gap-1 items-center w-20">
+                                <span className="text-gray-400 font-bold tracking-wider">% CHANCE</span>
+                            </div>
 
-                    <div className="h-10 items-center gap-2 justify-between w-full text-[11px] hidden md:flex">
-                        <div className="flex-1">
-                            <span className="text-gray-400 font-bold pl-0.5 tracking-wider">OUTCOME</span>
+
+                            <div className="flex-1">
+                            </div>
                         </div>
-                        <div className="flex gap-1 items-center w-20">
-                            <span className="text-gray-400 font-bold tracking-wider">% CHANCE</span>
-                        </div>
 
-                        <div className="flex-1">
-                        </div>
-                    </div>
-
-                    <div
-                        className="shrink-0 self-stretch h-px w-full bg-gray-700 hidden md:block"
-                    />
-                    <div className="flex flex-col">
-                        {market.outcomes.map((outcome) => (
-                            <div
-                                key={outcome.id}
-                                className={`flex flex-col md:flex-row gap-6 md:items-center md:justify-between py-3 md:py-2 border-b border-gray-700 pl-0.5
+                        <div
+                            className="shrink-0 self-stretch h-px w-full bg-gray-700 hidden md:block"
+                        />
+                        <div className="flex flex-col">
+                            {market.outcomes.map((outcome, idx) => (
+                                <div
+                                    key={outcome.id}
+                                    className={`flex flex-col md:flex-row gap-6 md:items-center md:justify-between py-3 md:py-2 border-b border-gray-700 pl-0.5
                                     bg-grayscale-black
                                     ${market.status === 'active' && "cursor-pointer"}
-                                    ${market.status === "resolved" && market.resolution?.winningOutcomeId !== outcome.id && "brightness-40"}
                                     transition-all duration-200`}
-                            // onClick={() => {
-                            //     if (market.status !== 'active') return;
-                            //     openDrawer('bet', { marketId: market.id, initialOutcomeId: outcome.id });
-                            // }}
-                            >
-                                <div className="text-[15px] flex-1 shrink text-start flex items-center gap-1.5">
-                                    <span className="line-clamp-1 font-medium">{outcome.name}</span>
+                                // onClick={() => {
+                                //     if (market.status !== 'active') return;
+                                //     openDrawer('bet', { marketId: market.id, initialOutcomeId: outcome.id });
+                                // }}
+                                >
+                                    <div className="text-[15px] flex-1 shrink text-start flex items-center gap-3">
+                                        <span className="line-clamp-1 font-medium">{outcome.name}</span>
 
-                                    {market.status === "resolved" && (market.resolution?.winningOutcomeId === outcome.id ?
-                                        <span><CheckCircle2 className="text-success" size={14} /></span> :
-                                        <span><CircleX className="text-red-400" size={14} /></span>)
-                                    }
+                                        {market.status === "resolved" && (market.resolution?.winningOutcomeId === outcome.id ?
+                                            <span><CheckCircle2 className="text-success" size={18} /></span> :
+                                            <span><CircleX className="text-red-400" size={18} /></span>)
+                                        }
 
-                                </div>
-                                <div className={`font-bold absolute right-0 md:static flex text-2xl text-primary-blue group-hover:text-white w-20 price-display`} >
-                                    <AnimatedOdds prob={outcome.priceYesNormalized} format={"percent"} />
-                                </div>
+                                    </div>
+                                    <div className={`font-bold absolute right-0 md:static flex text-2xl text-primary-blue group-hover:text-white w-20 price-display`} >
+                                        <AnimatedOdds prob={outcome.priceYesNormalized} format={"percent"} />
+                                    </div>
 
-                                <div className="flex-1 flex md:justify-end gap-2">
-                                    <button className="flex w-full md:w-34 justify-center gap-2 items-center px-8 md:px-0 bg-[#285cac]/90 rounded-md h-12 hover:brightness-110 cursor-pointer active:scale-95 transition-all duration-100"
-                                        onClick={() => {
-                                            if (market.status !== 'active') return;
-                                            openModal('bet', { marketId: market.id, initialOutcomeId: outcome.id, initialSide: 'y' });
-                                        }}>
-                                        <span className="flex items-baseline gap-2">
-                                            <span className="font-medium text-[15px] text-gray-100">Yes</span>
-                                            <span className="font-bold text-lg price-display"><ArrowOdds
-                                                prob={outcome.priceYes}
-                                                format={oddsFormat}
-                                            />
+
+                                    {!market.isBinary ? (<div className="flex-1 flex md:justify-end gap-2">
+                                        <button className="flex w-full md:w-34 justify-center gap-2 items-center px-8 md:px-0 bg-yes hover:bg-yes-neon text-yes-text hover:text-white rounded-md h-12 hover:brightness-110 cursor-pointer active:scale-95 transition-all duration-100"
+                                            onClick={() => {
+                                                if (market.status !== 'active') return;
+                                                openModal('bet', { marketId: market.id, initialOutcomeId: outcome.id, initialSide: 'y' });
+                                            }}>
+                                            <span className="flex items-baseline gap-2">
+                                                <span className="font-medium text-[15px]">Yes</span>
+                                                <span className="font-bold text-lg price-display"><ArrowOdds
+                                                    prob={outcome.priceYes}
+                                                    format={oddsFormat}
+                                                />
+                                                </span>
                                             </span>
-                                        </span>
 
-                                    </button>
-                                    <button className="flex w-full md:w-34 justify-center gap-2 items-center px-8 md:px-0 bg-[#9a45fe]/90 rounded-md h-12 hover:brightness-110 cursor-pointer active:scale-95 transition-all duration-100"
-                                        onClick={() => {
-                                            if (market.status !== 'active') return;
-                                            openModal('bet', { marketId: market.id, initialOutcomeId: outcome.id, initialSide: 'n' });
-                                        }}>
-                                        <span className="flex items-baseline gap-2">
-                                            <span className="font-bold text-[15px] text-gray-100">No</span>
-                                            <span className="font-bold text-lg price-display"><ArrowOdds
-                                                prob={outcome.priceNo}
-                                                format={oddsFormat}
-                                            />
+                                        </button>
+                                        <button className="flex w-full md:w-34 justify-center gap-2 items-center px-8 md:px-0 bg-no hover:bg-no-neon text-no-text hover:text-white rounded-md h-12 hover:brightness-110 cursor-pointer active:scale-95 transition-all duration-100"
+                                            onClick={() => {
+                                                if (market.status !== 'active') return;
+                                                openModal('bet', { marketId: market.id, initialOutcomeId: outcome.id, initialSide: 'n' });
+                                            }}>
+                                            <span className="flex items-baseline gap-2">
+                                                <span className="font-bold text-[15px]">No</span>
+                                                <span className="font-bold text-lg price-display"><ArrowOdds
+                                                    prob={outcome.priceNo}
+                                                    format={oddsFormat}
+                                                />
+                                                </span>
                                             </span>
-                                        </span>
 
-                                    </button>
+                                        </button>
+                                    </div>
+
+                                    ) :
+
+                                        <div className="flex-1 flex md:justify-end gap-2">
+                                            <button className={`flex w-full md:w-34 justify-center gap-2 items-center px-8 md:px-0 ${idx === 0 ? "bg-yes hover:bg-yes-neon text-yes-text" : "bg-no hover:bg-no-neon text-no-text"} hover:text-white rounded-md h-12 hover:brightness-110 cursor-pointer active:scale-95 transition-all duration-100`}
+                                                onClick={() => {
+                                                    if (market.status !== 'active') return;
+                                                    openModal('bet', { marketId: market.id, initialOutcomeId: outcome.id, initialSide: 'y' });
+                                                }}>
+                                                <span className="flex items-baseline gap-2">
+                                                    <span className="font-bold text-xl price-display"><ArrowOdds
+                                                        prob={outcome.priceYes}
+                                                        format={oddsFormat}
+                                                    />
+                                                    </span>
+                                                </span>
+
+                                            </button>
+                                        </div>}
+
                                 </div>
-
-                            </div>
-                        ))}
+                            ))}
+                        </div>
                     </div>
-                </div>
+                </>
+
+
+
                 {/* Outcomes */}
 
             </div >

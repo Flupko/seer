@@ -165,19 +165,19 @@ export default function MarketCardBis({ marketInitial }: { marketInitial: Market
                                         {/* YES / NO buttons, */}
 
 
-                                        <div className="flex items-center h-7.5 rounded-lg text-[13px] font-semibold bg-gradient-to-r from-blue-500/90 to-purple-500/90 relative group-hover:brightness-110 active:scale-95 duration-100"  >
-                                            <button className="text-center text-white cursor-pointer pl-2.5 pr-4 h-7.5"
+                                        <div className="flex items-center h-7.5 rounded-lg text-[13px] font-semibold bg-gradient-to-r from-yes/90 to-no/90 relative group-hover:brightness-110 active:scale-95 duration-100"  >
+                                            <button className="text-center text-yes-text cursor-pointer pl-2.5 pr-4 h-7.5"
                                                 onClick={() => {
                                                     if (market.status !== 'active') return;
                                                     openModal('bet', { marketId: market.id, initialOutcomeId: outcome.id, initialSide: 'y' });
                                                 }}>Yes</button>
 
-                                            <button className="text-center text-white cursor-pointer pr-2.5 pl-4 h-7.5"
+                                            <button className="text-center text-no-text cursor-pointer pr-2.5 pl-4 h-7.5"
                                                 onClick={() => {
                                                     if (market.status !== 'active') return;
                                                     openModal('bet', { marketId: market.id, initialOutcomeId: outcome.id, initialSide: 'n' });
                                                 }}>No</button>
-                                            <span className="absolute text-white right-11">/</span>
+                                            <span className="absolute text-gray-400 right-11">/</span>
                                         </div>
 
                                     </div>
@@ -192,7 +192,7 @@ export default function MarketCardBis({ marketInitial }: { marketInitial: Market
 
             {market.isBinary && (
                 <div className="flex gap-2">
-                    <button className={`flex w-full justify-center gap-3 items-center bg-[#285cac]/90  hover:brightness-110  rounded-md h-12 cursor-pointer active:scale-95 transition-all duration-100`}
+                    <button className={`flex w-full justify-center gap-3 items-center bg-yes hover:bg-yes-neon text-yes-text hover:text-white  rounded-md h-12 cursor-pointer active:scale-95 transition-all duration-100`}
                         onClick={() => {
                             if (market.status !== 'active') return;
                             openModal('bet', { marketId: market.id, initialOutcomeId: market.outcomes[0].id, initialSide: 'y' });
@@ -206,7 +206,10 @@ export default function MarketCardBis({ marketInitial }: { marketInitial: Market
                             </span>
                         </span>
                     </button>
-                    <button className={`flex w-full justify-center gap-3 items-center bg-[#7937c5] hover:brightness-110 rounded-md h-12 cursor-pointer active:scale-95 transition-all duration-100`}
+
+                    {/* #0080c0 */}
+                    {/* #8040c0 */}
+                    <button className={`flex w-full justify-center gap-3 items-center bg-no hover:bg-no-neon text-no-text hover:text-white hover:brightness-110 rounded-md h-12 cursor-pointer active:scale-95 transition-all duration-100`}
                         onClick={() => {
                             if (market.status !== 'active') return;
                             openModal('bet', { marketId: market.id, initialOutcomeId: market.outcomes[1].id, initialSide: 'y' });

@@ -40,67 +40,75 @@ export default function MarketBetSection({ market }: { market: MarketView }) {
         hasNextPage,
     } = useBetsQuery({ search });
 
+    const bets = data?.pages.flatMap((p) => p.bets)
+
     return (
-        <div className="mt-14">
+        <>
+            {(bets && bets.length > 0) && (
+                <div className="mt-14">
 
-            <h3 className="text-lg md:text-xl font-bold text-white mb-5">Active Bets</h3>
+                    <h3 className="text-lg md:text-xl font-bold text-white mb-5">Active Bets</h3>
 
-            <div className="border border-gray-800 rounded-xl p-4">
-
-
-                <div className="h-10 items-center justify-between w-full text-[11px] hidden md:flex px-4">
-                    <div className="flex-2">
-                        <span className="text-gray-400 font-bold tracking-wider">OUTCOME</span>
-                    </div>
-
-                    {!market.isBinary && (<div className="flex-1">
-                        <span className="text-gray-400 font-bold tracking-wider">SIDE</span>
-                    </div>)}
+                    <div className="border border-gray-800 rounded-xl p-4">
 
 
-                    <div className="flex-1">
-                        <span className="text-gray-400 font-bold tracking-wider">STAKE</span>
-                    </div>
+                        <div className="h-10 items-center justify-between w-full text-[11px] hidden md:flex px-4">
+                            <div className="flex-2">
+                                <span className="text-gray-400 font-bold tracking-wider">OUTCOME</span>
+                            </div>
 
-                    <div className="flex-1">
-                        <span className="text-gray-400 font-bold tracking-wider">TO WIN</span>
-                    </div>
+                            {!market.isBinary && (<div className="flex-1">
+                                <span className="text-gray-400 font-bold tracking-wider">SIDE</span>
+                            </div>)}
 
-                    <div className="flex-2">
-                        <span className="text-gray-400 font-bold tracking-wider">CASHOUT VALUE</span>
-                    </div>
-                </div>
-                {/* 
+
+                            <div className="flex-1">
+                                <span className="text-gray-400 font-bold tracking-wider">STAKE</span>
+                            </div>
+
+                            <div className="flex-1">
+                                <span className="text-gray-400 font-bold tracking-wider">TO WIN</span>
+                            </div>
+
+                            <div className="flex-2">
+                                <span className="text-gray-400 font-bold tracking-wider">CASHOUT VALUE</span>
+                            </div>
+                        </div>
+                        {/* 
                 <div
                     className="shrink-0 self-stretch h-px w-full bg-gray-700 hidden sm:block"
                 /> */}
 
 
-                <div className="flex flex-col gap-2.5">
-                    {isLoading && <div>Loading bets...</div>}
+                        <div className="flex flex-col gap-2.5">
+                            {isLoading && <div>Loading bets...</div>}
 
-                    {data?.pages.flatMap((p) => p.bets).map((bet) => (
-                        <BetCard bet={bet} key={bet.id} />
-                    ))}
-                </div>
+                            {bets?.map((bet) => (
+                                <BetCard bet={bet} key={bet.id} />
+                            ))}
+                        </div>
 
-                {hasNextPage && (
-                    <div className="flex justify-center mt-3">
-                        <button
-                            onClick={() => fetchNextPage()}
-                            disabled={isFetchingNextPage}
-                            className="px-4 h-10 cursor-pointer bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded-lg text-sm font-medium active:scale-95 transition-all"
-                        >
-                            {isFetchingNextPage ? "Loading..." : "Load More"}
-                        </button>
+                        {hasNextPage && (
+                            <div className="flex justify-center mt-3">
+                                <button
+                                    onClick={() => fetchNextPage()}
+                                    disabled={isFetchingNextPage}
+                                    className="px-4 h-10 cursor-pointer bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white rounded-lg text-sm font-medium active:scale-95 transition-all"
+                                >
+                                    {isFetchingNextPage ? "Loading..." : "Load More"}
+                                </button>
+                            </div>
+                        )}
+
                     </div>
-                )}
-
-            </div>
 
 
 
-        </div>
+                </div>
+            )}
+
+        </>
+
     );
 }
 
@@ -147,13 +155,13 @@ export function BetCard({ bet }: { bet: Bet }) {
                     {!market?.isBinary && (<span className="text-sm font-bold text-white">{bet.outcomeName}</span>)}
 
                     {market?.isBinary && (
-                        <OutcomeBadge className={`${market.outcomes[0].id === bet.outcomeId ? "bg-[#285cac]" : "bg-[#9a45fe]"}`}>{bet.outcomeName}</OutcomeBadge>
+                        <OutcomeBadge className={`${market.outcomes[0].id === bet.outcomeId ? "bg-yes-neon" : "bg-no-neon"}`}>{bet.outcomeName}</OutcomeBadge>
                     )}
                 </div>
 
                 {!market?.isBinary && (
                     <div className="flex-1">
-                        <OutcomeBadge className={`${bet.side === "y" ? "bg-[#285cac]" : "bg-[#9a45fe]"}`}>{bet.side === "y" ? "Yes" : "No"}</OutcomeBadge>
+                        <OutcomeBadge className={`${bet.side === "y" ? "bg-yes-neon" : "bg-no-neon"}`}>{bet.side === "y" ? "Yes" : "No"}</OutcomeBadge>
                     </div>
                 )}
 

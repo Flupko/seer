@@ -81,10 +81,10 @@ export default function BetUser({ bet }: { bet: Bet }) {
                             {!market?.isBinary && (<>
                                 <span className="font-bold text-sm">{bet.outcomeName}</span>
                                 <div className="w-[3px] h-[3px] rounded-full bg-gray-600 mx-1.5 mt-0.5"></div>
-                                <OutcomeBadge smaller className={`text-xs ${bet.side === "y" ? "bg-[#285cac]" : "bg-[#9a45fe]"}`}>{bet.side === "y" ? "Yes" : "No"}</OutcomeBadge></>
+                                <OutcomeBadge smaller className={`text-xs ${bet.side === "y" ? "bg-yes-neon" : "bg-no-neon"}`}>{bet.side === "y" ? "Yes" : "No"}</OutcomeBadge></>
                             )}
                             {market?.isBinary && (
-                                <OutcomeBadge smaller className={`${market.outcomes[0].id === bet.outcomeId ? "bg-[#285cac]" : "bg-[#9a45fe]"}`}>{bet.outcomeName}</OutcomeBadge>
+                                <OutcomeBadge smaller className={`${market.outcomes[0].id === bet.outcomeId ? "bg-yes-neon" : "bg-no-neon"}`}>{bet.outcomeName}</OutcomeBadge>
                             )}
                         </div>
                     </div>
@@ -184,11 +184,11 @@ export default function BetUser({ bet }: { bet: Bet }) {
                                         {bet.outcomeName}
                                     </span>
                                     <div className="w-[3px] h-[3px] rounded-full bg-gray-600 mx-1.5 mt-0.5"></div>
-                                    <OutcomeBadge smaller className={`${bet.side === "y" ? "bg-[#285cac]" : "bg-[#9a45fe]"}`}>{bet.side === "y" ? "Yes" : "No"}</OutcomeBadge></>
+                                    <OutcomeBadge smaller className={`${bet.side === "y" ? "bg-yes-neon" : "bg-no-neon"}`}>{bet.side === "y" ? "Yes" : "No"}</OutcomeBadge></>
                                 )}
 
                                 {market?.isBinary && (
-                                    <OutcomeBadge smaller className={`${market.outcomes[0].id === bet.outcomeId ? "bg-[#285cac]" : "bg-[#9a45fe]"}`}>{bet.outcomeName}</OutcomeBadge>
+                                    <OutcomeBadge smaller className={`${market.outcomes[0].id === bet.outcomeId ? "bg-yes-neon" : "bg-no-neon"}`}>{bet.outcomeName}</OutcomeBadge>
                                 )}
 
                             </div>

@@ -169,15 +169,15 @@ export default function BetModal({ marketId, initialOutcomeId, initialSide }: { 
                                     {!market.isBinary && (
                                         <div className="flex items-center">
                                             {selectedSide === "y" ?
-                                                <span className="font-bold text-[#285cac]">Bet Yes</span>
-                                                : <span className="font-bold text-[#9a45fe]">Bet No</span>}
+                                                <span className="font-bold text-yes-neon">Bet Yes</span>
+                                                : <span className="font-bold text-no-neon">Bet No</span>}
                                             <div className="w-[3px] h-[3px] rounded-full bg-gray-600 mx-1.5 mt-0.5"></div>
                                             <span className="font-bold">{outcome.name}</span>
                                         </div>
                                     )}
 
                                     {market.isBinary && (
-                                        <span className={`font-bold ${isFirstOutcome ? "text-[#285cac]" : "text-[#9a45fe]"}`}>Bet {outcome.name}</span>
+                                        <span className={`font-bold ${isFirstOutcome ? "text-yes-neon" : "text-no-neon"}`}>Bet {outcome.name}</span>
                                     )}
 
                                 </div>
@@ -186,7 +186,7 @@ export default function BetModal({ marketId, initialOutcomeId, initialSide }: { 
 
                             <div className="flex gap-3 mt-9">
 
-                                <button className={`flex w-full justify-center gap-3 items-center bg-[#285cac]/90 ${(market.isBinary ? outcomeId === market.outcomes[0].id : selectedSide == "y") ? "hover:brightness-110" : "brightness-40 hover:brightness-50"}  rounded-md h-12 cursor-pointer active:scale-95 transition-all duration-100`}
+                                <button className={`flex w-full justify-center gap-3 items-center  ${(market.isBinary ? outcomeId === market.outcomes[0].id : selectedSide == "y") ? "bg-yes-neon text-white hover:brightness-110" : "bg-yes text-yes-text hover:bg-yes-neon hover:text-white brightness-50 hover:brightness-100"}  rounded-md h-12 cursor-pointer active:scale-95 transition-all duration-100`}
                                     onClick={() => market.isBinary ? setOutcomeId(market.outcomes[0].id) : setSelectedSide("y")}>
                                     <span className="flex items-baseline gap-2">
                                         <span className="font-medium text-[15px]">{market.isBinary ? market.outcomes[0].name : "Yes"}</span>
@@ -198,7 +198,7 @@ export default function BetModal({ marketId, initialOutcomeId, initialSide }: { 
                                     </span>
 
                                 </button>
-                                <button className={`flex w-full justify-center gap-3 items-center bg-[#9a45fe]/90 ${(market.isBinary ? outcomeId === market.outcomes[1].id : selectedSide == "n") ? "hover:brightness-110" : "brightness-40 hover:brightness-50"} rounded-md h-12 cursor-pointer active:scale-95 transition-all duration-100`}
+                                <button className={`flex w-full justify-center gap-3 items-center ${(market.isBinary ? outcomeId === market.outcomes[1].id : selectedSide == "n") ? "bg-no-neon text-white hover:brightness-110" : "bg-no text-no-text hover:bg-no-neon hover:text-white brightness-50 hover:brightness-100"} rounded-md h-12 cursor-pointer active:scale-95 transition-all duration-100`}
                                     onClick={() => market.isBinary ? setOutcomeId(market.outcomes[1].id) : setSelectedSide("n")}>
                                     <span className="flex items-baseline gap-2">
                                         <span className="font-bold text-[15px]">{market.isBinary ? market.outcomes[1].name : "No"}</span>
@@ -269,12 +269,6 @@ export default function BetModal({ marketId, initialOutcomeId, initialSide }: { 
                                 </div>
                             </div>
                         </div>
-
-
-
-
-
-
 
 
 

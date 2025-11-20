@@ -1,7 +1,7 @@
 
 export function TableHeading({ children, className }: { children: React.ReactNode, className?: string }) {
     return (
-        <th className={`text-gray-400 text-sm text-left font-normal px-6 text-nowrap ${className}`}>
+        <th className={`text-gray-400 text-sm text-left font-medium px-6 text-nowrap ${className}`}>
             {children}
         </th>
     )
@@ -18,7 +18,7 @@ export function TableRow({ children, className }: { children: React.ReactNode, c
 
 export function TableCell({ children, current, className }: { children: React.ReactNode, current: boolean, className?: string }) {
     return (
-        <td className={`text-white text-left font-medium text-sm ${current ? "bg-gray-900" : "bg-grayscale-black"} px-6 py-4.5 ${className}`}>
+        <td className={`text-white text-left font-medium text-sm ${current ? "bg-gray-800/50" : "bg-grayscale-black"} px-6 py-5 ${className}`}>
             {children}
         </td>
     )
