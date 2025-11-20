@@ -2,26 +2,24 @@ import { useDrawerStore } from "@/lib/stores/drawer";
 import { motion } from "motion/react";
 import Link from "next/link";
 import Button from "../Button";
-import DrawerHeader from "../drawer/DrawerHeader";
 
 
-export default function BetSuccessDrawer(/* props */) {
+export default function BetSuccessModal(/* props */) {
 
     const closeDrawer = useDrawerStore((state) => state.closeDrawer);
 
     return (
         <>
-            <DrawerHeader title="Success" />
 
             {/* Drawer body: column, take remaining height below header */}
 
-            <div className="flex flex-col h-[calc(100vh-10rem)] items-center justify-center min-h-0 overflow-hidden px-5">
+            <div className="flex flex-col items-center justify-center min-h-0 pt-16 pb-8 px-6">
                 {/* Replace 56px with your header height */}
                 <div className="flex flex-col gap-4 items-center w-full">
                     {/* <Check className="w-32 h-32 filter-(--primary-blue-filter)" /> */}
                     <AnimatedCheckCircle />
-                    <p className="text-gray-300 text-sm font-medium py-2 text-center">Your bet has been successfully placed.</p>
-                    <div className="mt-3 w-full">
+                    <p className="text-gray-300 text-sm font-medium py-3 text-center">Your bet has been successfully placed.</p>
+                    <div className="mt-6 w-full">
 
                         <Link className="contents" href="/mybets">
                             <Button bg="bg-neon-blue" width="full" onClick={closeDrawer}>

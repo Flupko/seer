@@ -102,7 +102,7 @@ export default function Register() {
                 </div>
 
 
-                <Button bg="bg-neon-blue" width="full" height="large" type="submit" isLoading={mutation.isPending}>
+                <Button bg="bg-primary-blue" width="full" height="large" type="submit" isLoading={mutation.isPending}>
                     Register
                 </Button>
             </form>

@@ -43,15 +43,15 @@ func (am *AdminManager) CreateMarket(ctx context.Context, m *Market, categoryIDs
 	// Create the market
 	query = `INSERT INTO markets(status, 
 	name, description, currency, img_key, slug,
-	house_ledger_account_id, q0_seeding, alpha, fee, cap_price,
+	house_ledger_account_id, q0_seeding, alpha, cap_price,
 	outcome_sort,
 	close_time)
-	VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+	VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 	RETURNING id`
 
 	err = tx.QueryRow(ctx, query, StatusDraft,
 		m.Name, m.Description, m.Currency, m.ImgKey, m.Slug,
-		m.HouseLedgerAccountID, m.Q0Seeding, m.Alpha, m.Fee, m.CapPrice,
+		m.HouseLedgerAccountID, m.Q0Seeding, m.Alpha, m.CapPrice,
 		m.OutcomeSort,
 		m.CloseTime).Scan(&m.ID)
 	if err != nil {
@@ -75,12 +75,33 @@ func (am *AdminManager) CreateMarket(ctx context.Context, m *Market, categoryIDs
 	// Add the outcomes to the market
 	query = `INSERT INTO outcomes(market_id, name, position, quantity)
 	VALUES($1, $2, $3, $4) 
+	RETURNING id, name, quantity
 	`
 
 	for _, o := range outcomes {
-		_, err := tx.Exec(ctx, query, m.ID, o.Name, o.Position, m.Q0Seeding)
+		err := tx.QueryRow(ctx, query, m.ID, o.Name, o.Position, m.Q0Seeding).Scan(&o.ID, &o.Name, &o.Quantity)
 		if err != nil {
 			return fmt.Errorf("failed to insert outcome: %w", err)
+		}
+	}
+
+	// Add prices records for each outcome
+	q := []*numeric.BigDecimal{}
+	for _, o := range outcomes {
+		q = append(q, o.Quantity)
+	}
+
+	// prices, err := PricesNormalized(q, m.Alpha)
+	prices, err := PricesNormalized(q, m.Alpha)
+
+	if err != nil {
+		return fmt.Errorf("failed to compute outcomes prices: %w", err)
+	}
+
+	query = `INSERT INTO outcome_price_history(outcome_id, price) VALUES ($1, $2)`
+	for i := range len(prices) {
+		if _, err := tx.Exec(ctx, query, outcomes[i].ID, prices[i]); err != nil {
+			return fmt.Errorf("failed to insert outcome price history: %w", err)
 		}
 	}
 
@@ -104,21 +125,6 @@ func (ma *AdminManager) GetMarketStatus(ctx context.Context, marketID uuid.UUID)
 		}
 	}
 	return status, nil
-}
-
-func (ma *AdminManager) UpdateMarketFees(ctx context.Context, marketID uuid.UUID, newFee *numeric.BigDecimal) error {
-
-	cmd, err := ma.db.Exec(ctx, `UPDATE markets SET fee = $1 WHERE id = $2`, newFee, marketID)
-
-	if err != nil {
-		return fmt.Errorf("failed to update fee: %w", err)
-	}
-
-	if cmd.RowsAffected() == 0 {
-		return ErrMarketNotFound
-	}
-
-	return nil
 }
 
 func (ma *AdminManager) PauseMarket(ctx context.Context, marketID uuid.UUID) error {

@@ -1,10 +1,7 @@
 import { useUserQuery } from "@/lib/queries/useUserQuery";
 import { useDrawerStore } from "@/lib/stores/drawer";
-import { Bell, MessageCircleMore, Search } from "lucide-react";
-import Link from "next/link";
-import BetSlip from "../../../public/icons/bet_slip2.svg";
+import { Bell, MessageCircleMore } from "lucide-react";
 import Balance from "../Balance";
-import ToolTip from "../ToolTip";
 import UserPart from "./UserPart";
 
 export default function NavbarLogged() {
@@ -17,35 +14,33 @@ export default function NavbarLogged() {
 
 
     return (
-        <>
-            <div className="justify-self-center">
-                <Balance currency="USDT" />
-            </div>
+        <div className="flex">
 
-            <ul className="flex gap-2.5 justify-self-end">
 
-                <li className="hidden lg:block">
-                    <Link className="contents" href="/mybets">
-                        <ToolTip Icon={BetSlip} bgFull />
-                    </Link>
+            <Balance currency="USDT" />
 
-                </li>
+            <ul className="flex gap-3 items-center ml-2">
 
-                <li className="hidden lg:block">
-                    <ToolTip Icon={Bell} bgFull />
-                </li>
+                <div className="flex gap-4">
+                    {/* <div className="hidden lg:block">
+                        <BetSlip className="w-5.5 h-5.5 cursor-pointer hover:brightness-120 transition-all duration-150" />
+                    </div> */}
 
-                <li className="hidden lg:block">
-                    <ToolTip Icon={Search} bgFull />
-                </li>
+                    <div className="hidden lg:block">
+                        <Bell className="w-5.5 h-5.5 cursor-pointer hover:brightness-120 transition-all duration-150 text-gray-400" />
+                    </div>
 
-                <li className="hidden lg:block" onClick={() => openDrawer("chat")}>
-                    <ToolTip Icon={MessageCircleMore} bgFull />
-                </li>
+                    <div className="hidden lg:block" onClick={() => openDrawer("chat")}>
+                        <MessageCircleMore className="w-5.5 h-5.5 cursor-pointer hover:brightness-120 transition-all duration-150 text-gray-400" />
+                    </div>
+                </div>
+
+                <div className="w-[1px] bg-gray-600 h-5 mx-1"></div>
 
                 <UserPart />
 
             </ul>
-        </>
+        </div>
+
     )
 }

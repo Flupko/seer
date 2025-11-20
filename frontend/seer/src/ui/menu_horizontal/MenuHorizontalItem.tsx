@@ -3,7 +3,7 @@ export default function MenuHorizontalItem({ active = false, children, ...rest }
     return (
         <button
             className={`
-        h-9.5 
+        h-10 
         flex
         flex-1
 
@@ -12,10 +12,10 @@ export default function MenuHorizontalItem({ active = false, children, ...rest }
         font-medium 
         select-none 
         items-center 
-        text-sm px-3
+        text-sm px-4
         ${!active && " "}
         hover:text-white
-        rounded-md 
+        rounded-full
         transition-all 
         ${active ? "bg-gray-600 text-white" : "text-gray-200 active:scale-95 hover:bg-primary-blue active:bg-blue-pressed cursor-pointer"}
         duration-200

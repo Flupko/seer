@@ -35,6 +35,7 @@ type BetRequest struct {
 	UserID          uuid.UUID
 	MarketID        uuid.UUID
 	OutcomeID       int64
+	Side            BetSide
 	BetAmount       *numeric.BigDecimal
 	MinWantedGain   *numeric.BigDecimal
 	Currency        finance.Currency
@@ -132,7 +133,7 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) (*Be
 	var qVec []*numeric.BigDecimal
 
 	query := `
-	SELECT m.id, m.house_ledger_account_id, m.alpha, m.fee, m.cap_price,
+	SELECT m.id, m.house_ledger_account_id, m.alpha, m.cap_price,
 	m.version,
 	array_agg(o.quantity ORDER BY o.id) AS q_vec,
 	array_agg(o.id ORDER BY o.id) AS outcome_ids
@@ -141,7 +142,7 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) (*Be
 	WHERE m.id = $1 AND m.status = 'opened' AND (m.close_time IS NULL OR m.close_time > now())
 	GROUP BY m.id`
 
-	if err = tx.QueryRow(ctx, query, r.MarketID).Scan(&m.ID, &m.HouseLedgerAccountID, &m.Alpha, &m.Fee, &m.CapPrice, &m.Version, &qVec, &outcomesIDs); err != nil {
+	if err = tx.QueryRow(ctx, query, r.MarketID).Scan(&m.ID, &m.HouseLedgerAccountID, &m.Alpha, &m.CapPrice, &m.Version, &qVec, &outcomesIDs); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrMarketNotFound
 		}
@@ -150,6 +151,11 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) (*Be
 
 	if len(qVec) != len(outcomesIDs) || len(qVec) == 0 {
 		return nil, errors.New("inconsistent outcomes for market")
+	}
+
+	if len(outcomesIDs) == 2 && r.Side == SideNo {
+		// For binary markets, buying "no" shares is equivalent to buying "yes" shares on the opposite outcome
+		return nil, ErrNoBetBinaryMarket
 	}
 
 	// Find the index of the outcome in the q vector
@@ -176,7 +182,7 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) (*Be
 
 	// Recompute gain for the user
 	// Validate it's equal to the provided BetRequest
-	possible, actualGain, feePaid, avgPrice, err := PossibleGainFeePriceForBuy(qVec, idx, m.Alpha, m.Fee, r.BetAmount, m.CapPrice)
+	possible, actualGain, avgPrice, err := PossibleGainPriceForBuy(qVec, idx, r.Side == SideYes, m.Alpha, r.BetAmount, m.CapPrice)
 	if err != nil {
 		return nil, fmt.Errorf("failed to recompute actual gain: %w", err)
 	}
@@ -205,23 +211,20 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) (*Be
 		LedgerTransferID: transferID,
 		OutcomeID:        r.OutcomeID,
 		Payout:           actualGain,
+		Side:             r.Side,
 		TotalPricePaid:   r.BetAmount,
-		FeeApplied:       m.Fee,
-		FeePaid:          feePaid,
 		AvgPrice:         avgPrice,
 		IdempotencyKey:   r.IdempotencyKey,
 	}
 
-	fmt.Println("feeApplied", bet.FeeApplied.String())
-
 	query = `
-	INSERT INTO bets(ledger_account_id, ledger_transfer_id, outcome_id, payout, total_price_paid, fee_applied, fee_paid, avg_price, idempotency_key)
-	VALUES($1, $2, $3, $4, $5, $6, $7, $8, $9)
+	INSERT INTO bets(ledger_account_id, ledger_transfer_id, outcome_id, side, payout, total_price_paid, avg_price, idempotency_key)
+	VALUES($1, $2, $3, $4, $5, $6, $7, $8)
 	ON CONFLICT (idempotency_key) DO NOTHING
 	RETURNING id, placed_at
 	`
 
-	err = tx.QueryRow(ctx, query, bet.LedgerAccountID, bet.LedgerTransferID, bet.OutcomeID, bet.Payout, bet.TotalPricePaid, bet.FeeApplied, bet.FeePaid, bet.AvgPrice, bet.IdempotencyKey).Scan(&bet.ID, &bet.PlacedAt)
+	err = tx.QueryRow(ctx, query, bet.LedgerAccountID, bet.LedgerTransferID, bet.OutcomeID, bet.Side, bet.Payout, bet.TotalPricePaid, bet.AvgPrice, bet.IdempotencyKey).Scan(&bet.ID, &bet.PlacedAt)
 
 	// Already have a bet with this idempotency key
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -232,9 +235,16 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) (*Be
 		return nil, fmt.Errorf("failed to insert bet: %w", err)
 	}
 
-	// Add the shares to the outcome
-	if _, err := tx.Exec(ctx, `UPDATE outcomes SET quantity = quantity + $1, volume = volume + $2 WHERE id = $3`, actualGain, r.BetAmount, r.OutcomeID); err != nil {
-		return nil, fmt.Errorf("failed to update outcome: %w", err)
+	// Add the shares to the outcome(s)
+	switch r.Side {
+	case SideYes:
+		if _, err := tx.Exec(ctx, `UPDATE outcomes SET quantity = quantity + $1, volume = volume + $2 WHERE id = $3`, actualGain, r.BetAmount, r.OutcomeID); err != nil {
+			return nil, fmt.Errorf("failed to update outcome: %w", err)
+		}
+	case SideNo:
+		if _, err := tx.Exec(ctx, `UPDATE outcomes SET quantity = quantity + $1, volume = volume + $2 WHERE id <> $3`, actualGain, r.BetAmount, r.OutcomeID); err != nil {
+			return nil, fmt.Errorf("failed to update outcomes: %w", err)
+		}
 	}
 
 	// Update the market's version
@@ -274,7 +284,7 @@ func (tm *TransactionManager) CashoutBet(ctx context.Context, r *CashoutRequest)
 	// Retrieve the cashed out bet
 	// Check if wasn't already cashed out
 	query := `
-	SELECT m.id, b.id, b.ledger_account_id, b.ledger_transfer_id, b.outcome_id, b.payout, b.total_price_paid, b.fee_applied, b.fee_paid, b.avg_price, b.placed_at, b.idempotency_key
+	SELECT m.id, b.id, b.ledger_account_id, b.ledger_transfer_id, b.outcome_id, b.side, b.payout, b.total_price_paid, b.avg_price, b.placed_at, b.idempotency_key
 	FROM bets b
 	JOIN outcomes o ON b.outcome_id = o.id
 	JOIN markets m ON o.market_id = m.id
@@ -288,8 +298,8 @@ func (tm *TransactionManager) CashoutBet(ctx context.Context, r *CashoutRequest)
 
 	err := tm.db.QueryRow(ctx, query, r.BetID, r.UserID).Scan(
 		&marketID,
-		&cashedBet.ID, &cashedBet.LedgerAccountID, &cashedBet.LedgerTransferID, &cashedBet.OutcomeID, &cashedBet.Payout, &cashedBet.TotalPricePaid,
-		&cashedBet.FeeApplied, &cashedBet.FeePaid, &cashedBet.AvgPrice, &cashedBet.PlacedAt, &cashedBet.IdempotencyKey)
+		&cashedBet.ID, &cashedBet.LedgerAccountID, &cashedBet.LedgerTransferID, &cashedBet.OutcomeID, &cashedBet.Side, &cashedBet.Payout, &cashedBet.TotalPricePaid,
+		&cashedBet.AvgPrice, &cashedBet.PlacedAt, &cashedBet.IdempotencyKey)
 
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -364,7 +374,7 @@ func (tm *TransactionManager) cashoutBetOnce(ctx context.Context, marketID uuid.
 	var qVec []*numeric.BigDecimal
 
 	query := `
-	SELECT m.id, m.house_ledger_account_id, m.alpha, m.fee, m.cap_price,
+	SELECT m.id, m.house_ledger_account_id, m.alpha, m.cap_price,
 	m.version,
 	array_agg(o.quantity ORDER BY o.id) AS q_vec,
 	array_agg(o.id ORDER BY o.id) AS outcome_ids
@@ -373,7 +383,7 @@ func (tm *TransactionManager) cashoutBetOnce(ctx context.Context, marketID uuid.
 	WHERE m.id = $1 AND m.status = 'opened' AND (m.close_time IS NULL OR m.close_time > now())
 	GROUP BY m.id`
 
-	if err = tx.QueryRow(ctx, query, marketID).Scan(&m.ID, &m.HouseLedgerAccountID, &m.Alpha, &m.Fee, &m.CapPrice, &m.Version, &qVec, &outcomesIDs); err != nil {
+	if err = tx.QueryRow(ctx, query, marketID).Scan(&m.ID, &m.HouseLedgerAccountID, &m.Alpha, &m.CapPrice, &m.Version, &qVec, &outcomesIDs); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrMarketNotFound
 		}
@@ -393,7 +403,7 @@ func (tm *TransactionManager) cashoutBetOnce(ctx context.Context, marketID uuid.
 	// Recompute cashout gain for the user
 	// cashedBet.Payout = number of shares bought
 	fmt.Println("CAP PRICE", m.CapPrice)
-	possible, cashoutGain, err := PossibleGainForSell(qVec, idx, m.Alpha, cashedBet.Payout, m.CapPrice)
+	possible, cashoutGain, err := PossibleGainForSell(qVec, idx, cashedBet.Side == "y", m.Alpha, cashedBet.Payout, m.CapPrice)
 	if err != nil {
 		return nil, fmt.Errorf("failed to recompute cashout gain: %w", err)
 	}

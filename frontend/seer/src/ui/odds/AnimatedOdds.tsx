@@ -18,7 +18,7 @@ function toDecimalOdds(p: Decimal): number {
 
 function toPercent(p: Decimal): number {
     if (p.lessThanOrEqualTo(0)) return 0;
-    return p.toDecimalPlaces(2, Decimal.ROUND_UP).toNumber();
+    return p.toDecimalPlaces(2).toNumber();
 }
 
 // American odds: + for underdog (D ≥ 2), – for favorite

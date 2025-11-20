@@ -157,8 +157,8 @@ export default function PriceInput({
                 value={inner}
                 onChange={onChange}
                 onBlur={commitRound}
-                className={`input-base w-full bg-gray-900 flex-nowrap rounded-md text-sm h-12 py-3 pl-10 font-bold
-          border border-transparent outline-none focus:border-primary-blue placeholder:text-gray-400 placeholder:font-normal text-white
+                className={`input-base w-full bg-gray-800 flex-nowrap rounded-lg text-sm h-12 py-3 pl-10 font-bold
+          border border-transparent outline-none focus:border-primary-blue placeholder:text-gray-500 placeholder:font-normal text-white
           transition-colors duration-100`}
                 {...rest}
             />

@@ -28,13 +28,12 @@ func (bm *BetManager) SearchBets(ctx context.Context, bsq *BetSearchQuery) ([]Be
 	query := fmt.Sprintf(`WITH bets_with_status AS (SELECT
             b.id AS id, 
             b.ledger_account_id AS ledger_account_id,
-            u.id AS user_id, u.username AS username, u.hidden AS hidden,
             la.currency as currency,
-            b.payout AS payout, b.total_price_paid AS total_price_paid, b.fee_applied AS fee_applied, b.fee_paid AS fee_paid, b.avg_price AS avg_price,
+            b.payout AS payout, b.total_price_paid AS total_price_paid, b.avg_price AS avg_price,
             b.placed_at AS placed_at,
             bc.id AS cashout_id, bc.payout AS cashout_payout, bc.placed_at AS cashout_placed_at,
             m.id AS market_id, m.name AS market_name, m.img_key AS market_img_key,
-            o.id AS outcome_id, o.name AS outcome_name, 
+            o.id AS outcome_id, b.side as side, o.name AS outcome_name, 
             m.status AS market_status,
             CASE
                 WHEN EXISTS (SELECT 1 FROM bet_cashouts bc WHERE bc.bet_id = b.id) THEN 'cashedOut'
@@ -46,7 +45,8 @@ func (bm *BetManager) SearchBets(ctx context.Context, bsq *BetSearchQuery) ([]Be
             COALESCE(
             (SELECT bc.placed_at FROM bet_cashouts bc WHERE bc.bet_id = b.id LIMIT 1),
             mr.created_at,
-            b.placed_at) AS event_at
+            b.placed_at) AS event_at,
+			u.id as user_id, u.username as user_username, u.profile_image_key as user_profile_image_key, u.total_wagered as user_total_wagered, u.created_at as user_created_at, u.hidden as user_hidden
         FROM bets b
         JOIN ledger_accounts la ON b.ledger_account_id = la.id
         JOIN outcomes o ON b.outcome_id = o.id
@@ -58,14 +58,14 @@ func (bm *BetManager) SearchBets(ctx context.Context, bsq *BetSearchQuery) ([]Be
     SELECT count(*) OVER() AS total_count, 
         id, 
         ledger_account_id,
-        user_id, username, hidden,
         currency,
-        payout, total_price_paid, fee_applied, fee_paid, avg_price,
+        payout, total_price_paid, avg_price,
         placed_at,
         cashout_id, cashout_payout, cashout_placed_at,
         market_id, market_name, market_img_key,
-        outcome_id, outcome_name, 
-        market_status, bet_status
+        outcome_id, side, outcome_name, 
+        market_status, bet_status,
+		user_id, user_username, user_profile_image_key, user_total_wagered, user_created_at, user_hidden
     FROM bets_with_status
     WHERE ($1::UUID IS NULL OR user_id = $1)
     AND ($2::UUID IS NULL OR market_id = $2)
@@ -107,14 +107,15 @@ func (bm *BetManager) SearchBets(ctx context.Context, bsq *BetSearchQuery) ([]Be
 		err := rows.Scan(&totalCount,
 			&b.ID,
 			&b.LedgerAccountID,
-			&b.User.ID, &b.User.Username, &b.User.Hidden,
 			&b.Currency,
-			&b.Payout, &b.TotalPricePaid, &b.FeeApplied, &b.FeePaid, &b.AvgPrice,
+			&b.Payout, &b.TotalPricePaid, &b.AvgPrice,
 			&b.PlacedAt,
 			&cashoutId, &cashoutPayout, &cashoutPlacedAt,
 			&b.MarketID, &b.MarketName, &b.MarketImgKey,
-			&b.OutcomeID, &b.OutcomeName,
-			&marketStatus, &b.Status)
+			&b.OutcomeID, &b.Side, &b.OutcomeName,
+			&marketStatus, &b.Status,
+			&b.User.ID, &b.User.Username, &b.User.ProfileImageKey, &b.User.TotalWagered, &b.User.CreatedAt, &b.User.Hidden,
+		)
 
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to scan bet: %w", err)
@@ -144,19 +145,19 @@ func (bm *BetManager) SearchBets(ctx context.Context, bsq *BetSearchQuery) ([]Be
 func (bm *BetManager) GetBetView(ctx context.Context, betID uuid.UUID) (*BetView, error) {
 
 	query := `SELECT b.id, 
-    u.id, u.username, u.hidden, 
-    b.payout, b.total_price_paid, b.fee_applied, b.fee_paid, b.avg_price,
+    b.payout, b.total_price_paid, b.avg_price,
     b.placed_at,
     bc.id AS cashout_id, bc.payout AS cashout_payout, bc.placed_at AS cashout_placed_at,
     m.id AS market_id, m.name AS market_name, m.img_key AS market_img_key,
-    o.id AS outcome_id, o.name AS outcome_name, 
+    o.id AS outcome_id, b.side AS side, o.name AS outcome_name, 
     CASE
         WHEN m.status IN ('opened','paused','pending') THEN 'active'
         WHEN m.status = 'resolved'  AND mr.winning_outcome_id = b.outcome_id THEN 'won'
         WHEN m.status = 'resolved'  AND (mr.winning_outcome_id <> b.outcome_id) THEN 'lost'
         WHEN m.status = 'cancelled' THEN 'refunded'
         ELSE 'unknown'
-    END AS bet_status
+    END AS bet_status,
+	u.id, u.username, u.profile_image_key, u.total_wagered, u.created_at, u.hidden
     FROM bets b
     JOIN ledger_accounts la ON b.ledger_account_id = la.id
     JOIN outcomes o ON b.outcome_id = o.id
@@ -174,13 +175,14 @@ func (bm *BetManager) GetBetView(ctx context.Context, betID uuid.UUID) (*BetView
 	var cashoutPlacedAt *time.Time
 
 	err := bm.db.QueryRow(ctx, query, betID).Scan(&b.ID,
-		&b.User.ID, &b.User.Username, &b.User.Hidden,
-		&b.Payout, &b.TotalPricePaid, &b.FeeApplied, &b.FeePaid, &b.AvgPrice,
+		&b.Payout, &b.TotalPricePaid, &b.AvgPrice,
 		&b.PlacedAt,
 		&cashoutId, &cashoutPayout, &cashoutPlacedAt,
 		&b.MarketID, &b.MarketName, &b.MarketImgKey,
-		&b.OutcomeID, &b.OutcomeName,
-		&b.Status)
+		&b.OutcomeID, &b.Side, &b.OutcomeName,
+		&b.Status,
+		&b.User.ID, &b.User.Username, &b.User.ProfileImageKey, &b.User.TotalWagered, &b.User.CreatedAt, &b.User.Hidden,
+	)
 
 	if err != nil {
 		if err == pgx.ErrNoRows {

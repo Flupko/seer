@@ -3,8 +3,8 @@
 import { DrawerType, useDrawerStore } from "@/lib/stores/drawer";
 import { AnimatePresence, motion } from "motion/react";
 import { useMediaQuery } from "usehooks-ts";
-import BetDrawer from "../bet/BetDrawer";
-import SuccessBetDrawer from "../bet/BetSuccessDrawer";
+import BetDrawer from "../bet/BetModal";
+import SuccessBetDrawer from "../bet/BetSuccessModal";
 import ChatDrawer from "../chat/ChatDrawer";
 
 export const drawerComponent: Record<Exclude<DrawerType, null>, React.ElementType> = {
@@ -29,7 +29,7 @@ export default function Drawer() {
             <AnimatePresence mode="wait" initial={false}>
                 {currentDrawer && !isSmall && (
                     <motion.aside
-                        className="border-l border-l-gray-700 bg-gray-900 h-screen max-h-screen overflow-hidden"
+                        className="border-l border-l-gray-700 bg-grayscale-black h-screen max-h-screen overflow-hidden"
                         key="desktop-drawer"
                         initial={{ width: 0 }}
                         animate={{ width: "22.5rem" }}

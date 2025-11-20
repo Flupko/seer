@@ -137,12 +137,27 @@ type userProfileReq struct {
 	Username string `param:"username" validate:"required,max=30"`
 }
 
-type userProfileRes struct {
+type PublicUserRes struct {
 	ID              uuid.UUID          `json:"id"`
 	Username        string             `json:"username"`
 	ProfileImageKey string             `json:"profileImageKey,omitempty"`
 	TotalWagered    numeric.BigDecimal `json:"totalWagered"`
 	CreatedAt       time.Time          `json:"createdAt"`
+}
+
+func UserViewToPublicRes(userView *repos.UserView) *PublicUserRes {
+	r := &PublicUserRes{
+		ID:           userView.ID,
+		Username:     userView.Username.String,
+		TotalWagered: userView.TotalWagered,
+		CreatedAt:    userView.CreatedAt,
+	}
+
+	if userView.ProfileImageKey.Valid {
+		r.ProfileImageKey = userView.ProfileImageKey.String
+	}
+
+	return r
 }
 
 func (h *UserHandler) GetUserProfile(c echo.Context) error {
@@ -163,16 +178,7 @@ func (h *UserHandler) GetUserProfile(c echo.Context) error {
 		return echo.NewHTTPError(http.StatusNotFound, "user not found")
 	}
 
-	res := &userProfileRes{
-		ID:           userView.ID,
-		Username:     r.Username,
-		TotalWagered: userView.TotalWagered,
-		CreatedAt:    userView.CreatedAt,
-	}
-
-	if userView.ProfileImageKey.Valid {
-		res.ProfileImageKey = userView.ProfileImageKey.String
-	}
+	res := UserViewToPublicRes(userView)
 
 	return c.JSON(http.StatusOK, res)
 

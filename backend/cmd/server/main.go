@@ -218,6 +218,7 @@ func main() {
 	e.GET("/my/bets", authMiddleware.RequireAuthentication(marketHandler.GetPersonnalBets))
 	e.GET("/market/search", marketHandler.GetMarketsUser)
 	e.GET("/market/search/:id", marketHandler.GetMarketUser)
+	e.GET("/market/search/slug/:slug", marketHandler.GetMarketUser)
 	e.GET("/bet/:id", marketHandler.PublicGetBet)
 
 	e.GET("market/categories/featured", marketHandler.GetAllFeaturedCategories)
@@ -227,14 +228,15 @@ func main() {
 
 	e.POST("/comments", authMiddleware.RequireAuthentication(commentHandler.PostComment))
 	e.DELETE("/comments", authMiddleware.RequireAuthentication(commentHandler.UserDeleteComment))
-	e.GET("/comments", commentHandler.UserGetComments)
+	e.GET("/comments", authMiddleware.Authenticate(commentHandler.UserGetComments))
+	e.POST("/comments/like", authMiddleware.RequireAuthentication(commentHandler.LikeComment))
+	e.DELETE("/comments/like", authMiddleware.RequireAuthentication(commentHandler.UnlikeComment))
 
 	e.POST("/comments/report", authMiddleware.RequireAuthentication(userModateHandler.ReportComment))
 	e.POST("/admin/market", authMiddleware.RequireRole(adminMarketHandler.CreateMarket, repos.AdminRole))
 	e.POST("admin/market/settle", authMiddleware.RequireRole(adminMarketHandler.ResolveMarket, repos.AdminRole))
 	e.PATCH("admin/market/resume", authMiddleware.RequireRole(adminMarketHandler.ResumeMarket, repos.AdminRole))
 	e.PATCH("admin/market/pause", authMiddleware.RequireRole(adminMarketHandler.PauseMarket, repos.AdminRole))
-	e.PATCH("admin/market/fee", authMiddleware.RequireRole(adminMarketHandler.UpdateMarketFee, repos.AdminRole))
 
 	e.DELETE("admin/comments", authMiddleware.RequireRole(commentHandler.AdminDeleteComment, repos.AdminRole))
 	e.POST("admin/bets", authMiddleware.RequireRole(adminBetHandler.GetBetsAdmin, repos.AdminRole))

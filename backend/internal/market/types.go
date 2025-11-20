@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"seer/internal/finance"
 	"seer/internal/numeric"
+	"seer/internal/repos"
 	"seer/internal/utils/meta"
 	"time"
 
@@ -33,6 +34,7 @@ type Market struct {
 	ID          uuid.UUID
 	Name        string
 	Description string
+	IsBinary    bool
 	Currency    finance.Currency
 	Status      MarketStatus
 	ImgKey      string
@@ -41,7 +43,6 @@ type Market struct {
 	HouseLedgerAccountID uuid.UUID
 	Q0Seeding            *numeric.BigDecimal
 	Alpha                *numeric.BigDecimal
-	Fee                  *numeric.BigDecimal
 	Volume               *numeric.BigDecimal
 	CapPrice             *numeric.BigDecimal
 
@@ -86,15 +87,21 @@ type MarketSearchResult struct {
 	Metadata *meta.Metadata
 }
 
+type BetSide string
+
+const (
+	SideYes BetSide = "y" // buying shares for the outcome
+	SideNo  BetSide = "n" // buying shares against the outcome (= all other outcomes)
+)
+
 type Bet struct {
 	ID               uuid.UUID
 	LedgerAccountID  uuid.UUID
 	LedgerTransferID uuid.UUID
 	OutcomeID        int64
+	Side             BetSide
 	Payout           *numeric.BigDecimal
 	TotalPricePaid   *numeric.BigDecimal
-	FeeApplied       *numeric.BigDecimal
-	FeePaid          *numeric.BigDecimal
 	AvgPrice         *numeric.BigDecimal
 	PlacedAt         time.Time
 	IdempotencyKey   string
@@ -111,12 +118,8 @@ type BetCashout struct {
 
 type BetView struct {
 	Bet
-	Cashout *BetCashout
-	User    struct {
-		ID       uuid.UUID
-		Username string
-		Hidden   bool
-	}
+	Cashout      *BetCashout
+	User         repos.UserView
 	Status       BetStatus
 	MarketID     uuid.UUID
 	MarketName   string
@@ -291,11 +294,12 @@ const (
 var pricesTimeframeSafeMap = map[PricesTimeframe]struct {
 	table    string
 	duration string
+	interval time.Duration
 }{
-	Prices24h: {"outcome_price_5m", "'5m'"},
-	Prices7d:  {"outcome_price_1h", "'1h'"},
-	Prices30d: {"outcome_price_4h", "'4h'"},
-	PricesAll: {"outcome_price_24h", "'24h'"},
+	Prices24h: {"outcome_price_5m", "'5m'", time.Hour * 24},
+	Prices7d:  {"outcome_price_1h", "'1h'", time.Hour * 24 * 7},
+	Prices30d: {"outcome_price_4h", "'4h'", time.Hour * 24 * 30},
+	PricesAll: {"outcome_price_24h", "'24h'", time.Hour * 24 * 365 * 10},
 }
 
 type PriceChart struct {

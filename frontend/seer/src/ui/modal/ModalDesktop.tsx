@@ -32,7 +32,7 @@ export default function ModalDesktop() {
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
                         transition={{ duration: 0.17 }}
-                        className="fixed left-0 top-0 bottom-0 right-0 z-[10000] bg-black/25 flex justify-center items-center"
+                        className="fixed left-0 top-0 bottom-0 right-0 z-[10000] bg-black/40 flex justify-center items-center"
                         onClick={handleClose}
                     >
 
@@ -57,7 +57,7 @@ export default function ModalDesktop() {
                                         {/* Center horizontally with mx-auto, no items-center */}
                                         <motion.div
 
-                                            className={`bg-gray-900 w-full ${height} rounded-lg relative mx-auto`}
+                                            className={`bg-grayscale-black  w-full ${height} rounded-2xl relative mx-auto`}
                                         >
 
                                             {ModalContent && <ModalContent {...modalData} ref={closeRef} />}

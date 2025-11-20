@@ -7,12 +7,12 @@ export default async function Layout({ children }: { children: React.ReactNode }
 
     return (
         <>
-            {children}
-            <div className="pt-5 md:pt-8">
-                <MainWrapper>
+            <MainWrapper>
+                {children}
+                <div className="pt-10 md:pt-14">
                     <BetsLive />
-                </MainWrapper>
-            </div>
+                </div>
+            </MainWrapper>
         </>
     );
 }

@@ -36,7 +36,7 @@ export default function MobileDrawer() {
 
                         {/* Sheet */}
                         <motion.div
-                            className={`fixed bottom-0 left-0 right-0 z-[10000] w-full ${height} max-h-[calc(100%-5rem)] bg-gray-900 flex flex-col overflow-hidden`}
+                            className={`fixed bottom-0 left-0 right-0 z-[10000] w-full ${height} max-h-[calc(100%-5rem)] bg-grayscale-black flex flex-col overflow-hidden`}
                             initial={{ y: "100%" }}
                             animate={{ y: 0 }}
                             exit={{ y: "100%" }}

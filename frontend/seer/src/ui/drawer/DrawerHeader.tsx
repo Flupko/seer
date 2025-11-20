@@ -8,9 +8,9 @@ export default function DrawerHeader({ title, left, right }: { title: string, le
     const closeDrawer = useDrawerStore((state) => state.closeDrawer)
 
     return (
-        <div className="flex justify-between items-center bg-gray-900 px-5 border-b border-b-gray-700 h-19 shrink-0">
+        <div className="flex justify-between items-center bg-grayscale-black px-5 border-b border-b-gray-700 h-16 shrink-0">
             <div className="h-full flex items-center gap-2">
-                <h2 className="text-xl font-bold">{title}</h2>
+                <h2 className="text-lg font-bold">{title}</h2>
                 {left}
             </div>
 

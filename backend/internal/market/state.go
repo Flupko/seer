@@ -178,7 +178,7 @@ func (sm *StateManager) updateMarketState(payload string) error {
 }
 
 // Returns (gainCents, avgPrice, err)
-func (sm *StateManager) GetQuoteForBet(ctx context.Context, betAmount *numeric.BigDecimal, marketID uuid.UUID, outcomeID int64) (*numeric.BigDecimal, *numeric.BigDecimal, error) {
+func (sm *StateManager) GetQuoteForBet(ctx context.Context, betAmount *numeric.BigDecimal, marketID uuid.UUID, outcomeID int64, side BetSide) (*numeric.BigDecimal, *numeric.BigDecimal, error) {
 
 	ms, err := sm.GetMarketState(ctx, marketID)
 
@@ -192,7 +192,7 @@ func (sm *StateManager) GetQuoteForBet(ctx context.Context, betAmount *numeric.B
 		return nil, nil, ErrOutcomeNotFound
 	}
 
-	_, gain, _, avgPrice, err := PossibleGainFeePriceForBuy(ms.QVec, idx, ms.Alpha, ms.Fee, betAmount, ms.CapPrice)
+	_, gain, avgPrice, err := PossibleGainPriceForBuy(ms.QVec, idx, side == SideYes, ms.Alpha, betAmount, ms.CapPrice)
 
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to compute gain: %w", err)
@@ -245,15 +245,16 @@ func (sm *StateManager) retrieveMarketStateDB(ctx context.Context, marketID uuid
 	ms := &MarketState{}
 
 	query := `
-	SELECT m.id, m.version, m.alpha, m.fee, m.cap_price, m.volume,
+	SELECT m.id, m.version, m.alpha, m.cap_price, m.volume,
 	array_agg(o.quantity ORDER BY o.id) AS q_vec,
 	array_agg(o.id ORDER BY o.id) AS outcome_ids
 	FROM markets m
 	JOIN outcomes o ON o.market_id = m.id
 	WHERE m.id = $1
-	GROUP BY m.id, m.version, m.alpha, m.fee`
+	GROUP BY m.id, m.version, m.alpha, m.cap_price, m.volume
+	`
 
-	if err := sm.db.QueryRow(ctx, query, marketID).Scan(&ms.ID, &ms.Version, &ms.Alpha, &ms.Fee, &ms.CapPrice, &ms.Volume, &ms.QVec, &ms.OutcomeIDs); err != nil {
+	if err := sm.db.QueryRow(ctx, query, marketID).Scan(&ms.ID, &ms.Version, &ms.Alpha, &ms.CapPrice, &ms.Volume, &ms.QVec, &ms.OutcomeIDs); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrMarketNotFound
 		}
@@ -264,7 +265,7 @@ func (sm *StateManager) retrieveMarketStateDB(ctx context.Context, marketID uuid
 		return nil, errors.New("inconsistent outcomes for market")
 	}
 
-	prices, err := PricesBD(ms.QVec, ms.Alpha, ms.Fee)
+	prices, err := PricesBD(ms.QVec, ms.Alpha)
 	if err != nil {
 		return nil, fmt.Errorf("failed to compute prices for market %s: %w", ms.ID, err)
 	}

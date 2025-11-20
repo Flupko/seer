@@ -1,14 +1,12 @@
-import { cashoutBet, getMarket } from "@/lib/api";
+import { cashoutBet, getMarketById } from "@/lib/api";
 import { Bet } from "@/lib/definitions";
 import { possiblePayoutDeltaForCashout } from "@/lib/lslmsr/lslmsr";
-import { formatOdds } from "@/lib/odds";
-import { usePrefs } from "@/lib/stores/prefs";
 import NumberFlow from "@number-flow/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Image from "next/image";
 import { useRef, useState } from "react";
-import DollarIcon from "../../../public/icons/dollar.svg";
 import Button from "../Button";
+import { OutcomeBadge } from "../markets/OutcomeBadge";
 import { AnimatedOdds } from "../odds/AnimatedOdds";
 import { toastStyled } from "../Toast";
 
@@ -18,9 +16,11 @@ export default function BetUser({ bet }: { bet: Bet }) {
 
     const { data: market } = useQuery({
         queryKey: ['market', bet.marketId],
-        queryFn: () => getMarket(bet.marketId),
+        queryFn: () => getMarketById(bet.marketId),
         staleTime: Infinity,
     })
+
+    const [cashoutClicked, setCashoutClicked] = useState(false);
 
     const queryClient = useQueryClient();
 
@@ -33,17 +33,12 @@ export default function BetUser({ bet }: { bet: Bet }) {
         },
     });
 
-    const [cashoutClicked, setCashoutClicked] = useState(false);
+
     const isResolved = bet.status === 'won' || bet.status === 'lost' || bet.status === 'cashedOut';
-
-
-    const oddsFormat = usePrefs((state) => state.oddsFormat);
-    const [possible, deltaProp, payout] = market ? possiblePayoutDeltaForCashout(market, bet) : [null, null, null];
-    console.log("delta prop", possible && deltaProp?.toNumber());
 
     const handleCashout = () => {
 
-        if (!cashoutClicked || !possible || isResolved) return;
+        if (!cashoutClicked || !possible) return;
 
         mutate({
             betId: bet.id,
@@ -52,142 +47,226 @@ export default function BetUser({ bet }: { bet: Bet }) {
         });
     }
 
+    if (!market) return null;
+
+    // bet.status = "won"
+
+    const [possible, deltaProp, payout] = market ? possiblePayoutDeltaForCashout(market, bet) : [null, null, null];
 
     return (
-        <div>
+        <>
+            <div className="hidden lg:flex items-center justify-between bg-gray-800/50 p-3 rounded-lg">
+                {/* <div className="flex-2 pl-0.5">
+                    <span className="text-sm font-bold text-white">{bet.outcomeName}</span>
+                    <div className={`text-sm font-bold flex items-center justify-center text-white rounded-sm h-7 w-10 ${bet.side === "y" ? "bg-[#285cac]" : "bg-[#9a45fe]"}`}>{bet.side === "y" ? "Yes" : "No"}</div>
+                </div> */}
 
-            <div className="bg-gray-700 p-4 px-4.5 flex flex-col gap-8 rounded-t-lg relative">
+                <div className="flex-2 flex items-center gap-4">
+                    {market.imgKey && (
+                        <div className="flex-shrink-0 w-12 h-12 rounded-md overflow-hidden">
+                            <Image
+                                src={market.imgKey}
+                                alt={market.name}
+                                width={250}
+                                height={250}
+                                className="object-cover w-full h-full"
+                            />
+                        </div>)}
+                    <div className="flex flex-col gap-1.5 text-sm">
+                        <h2 className="text-sm font-medium h-fit leading-5.5 line-clamp-1 text-ellipsis break-all">
+                            {market?.name}
+                        </h2>
+                        <div className="flex items-center">
 
-
-                <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-3">
-                        {bet.marketImgKey && (
-                            <div className="flex-shrink-0 w-9 h-9 rounded-md overflow-hidden bg-gray-900">
-                                <Image
-                                    src={bet.marketImgKey}
-                                    alt={bet.marketName}
-                                    width={24}
-                                    height={24}
-                                    className="object-cover w-full h-full"
-                                />
-                            </div>)}
-                        <h2 className="text-sm font-bold h-fit leading-5.5 line-clamp-1">{bet.marketName}</h2>
-
-
+                            {!market?.isBinary && (<>
+                                <span className="font-bold text-sm">{bet.outcomeName}</span>
+                                <div className="w-[3px] h-[3px] rounded-full bg-gray-600 mx-1.5 mt-0.5"></div>
+                                <OutcomeBadge smaller className={`text-xs ${bet.side === "y" ? "bg-[#285cac]" : "bg-[#9a45fe]"}`}>{bet.side === "y" ? "Yes" : "No"}</OutcomeBadge></>
+                            )}
+                            {market?.isBinary && (
+                                <OutcomeBadge smaller className={`${market.outcomes[0].id === bet.outcomeId ? "bg-[#285cac]" : "bg-[#9a45fe]"}`}>{bet.outcomeName}</OutcomeBadge>
+                            )}
+                        </div>
                     </div>
 
-                    {isResolved && (
-                        <span className={`text-xs font-bold py-[0.15rem] px-[0.3rem] rounded-md text-grayscale-black whitespace-nowrap
-                         ${bet.status === "won" && "bg-success"}
-                         ${bet.status === "lost" && "bg-error"}
-                          ${bet.status === "cashedOut" && "bg-yellow-500"}`}
+                </div>
 
-                        >
-                            {bet.status === "won" && "WIN"}
-                            {bet.status === "lost" && "LOSS"}
-                            {bet.status === "cashedOut" && "CASH OUT"
-                            }
-                        </span>)
+                <div className="flex-1 pl-0.5">
+                    <span className="text-sm font-bold text-white">${bet.pricePaid.toFixed(2)}</span>
+                </div>
+                <div className="flex-1 pl-0.5">
+                    <span className="text-sm font-bold text-white">${bet.payout.toFixed(2)}</span>
+                </div>
+
+
+
+                <div className={`flex items-center gap-2 ${isResolved ? "w-50" : "flex-2 justify-between"}`}>
+
+                    {!isResolved && (
+                        <div className="flex gap-4 items-center">
+                            <span className={`flex text-sm font-bold items-center`}>
+                                ${payout && <NumberFlow locales={"en-US"} value={payout.toNumber()} format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }} />}
+                            </span>
+                            {deltaProp && (
+                                <span className={`flex items-center gap-1 px-2 h-6.5 rounded-full text-xs font-bold pb-[1px] w-fit
+                                    ${deltaProp.greaterThan(0) ? 'bg-green-400/10 text-success' : 'bg-red-400/10 text-red-400'}`}>
+                                    {deltaProp.greaterThan(0) ? '+' : '-'}
+                                    {<AnimatedOdds prob={deltaProp.abs()} format="percent" />}
+                                </span>
+                            )}
+                        </div>
+                    )
+
+                    }
+
+
+                    {!isResolved && (
+                        <div className="w-25 justify-self-end">
+                            <Button isLoading={isPending} disabled={isPending || !possible} bg={cashoutClicked ? "bg-primary-blue" : "bg-transparent"} width="full" className="border-primary-blue border h-8" height="small" onClick={() => cashoutClicked ? handleCashout() : setCashoutClicked(true)}>
+                                <span className={`text-sm font-bold ${cashoutClicked ? 'text-gray-200' : 'text-primary-blue'}`}>
+                                    Cashout
+                                </span>
+                            </Button>
+                        </div>)}
+
+                    {isResolved && (
+                        <div className="flex gap-2 items-center">
+
+                            <span className={`text-xs font-bold py-1 px-1.5 rounded-sm text-white whitespace-nowrap
+                                    ${bet.status === "won" && "bg-green-600"}
+                                    ${bet.status === "lost" && "bg-orange-700"}
+                                    ${bet.status === "cashedOut" && "bg-indigo-600"}`}
+
+                            >
+                                {bet.status === "won" && "WIN"}
+                                {bet.status === "lost" && "LOSS"}
+                                {bet.status === "cashedOut" && "CASHED"
+                                }
+                            </span>
+
+
+                            {bet.status === "cashedOut" && (<div className="text-sm flex gap-2 items-center">
+                                <span className="text-gray-500 font-bold tracking-wider text-xs">FOR </span>
+                                <span className="text-white font-bold"> ${bet.cashedOut?.toFixed(2)} </span>
+
+                            </div>)}
+
+
+                        </div>)
                     }
                 </div>
 
-
-
-                <span className="absolute bg-gray-900 rounded-full w-4 h-4 bottom-0 translate-y-1/2 -left-0.5 -translate-x-1/2"></span>
-                <span className="absolute bg-gray-900 rounded-full w-4 h-4 bottom-0 translate-y-1/2 -right-0.5 translate-x-1/2"></span>
-
-                <div className="absolute bottom-0 left-0 w-full translate-y-1/2">
-                    <div className="border-t-4 border-dotted  border-gray-900" />
-                </div>
-
             </div>
 
 
 
-            <div className="bg-gray-800 p-4.5 pt-3.5 rounded-b-lg flex flex-col gap-5.5">
-
-
-                <div className="flex flex-col gap-5">
-                    <div className="flex items-center justify-between">
-                        <span className="text-sm font-bold text-primary-blue">
-                            {bet.outcomeName}
-                        </span>
-
-                        <span className="text-sm font-bold text-white">
-                            {formatOdds(bet.avgPrice, oddsFormat)}
-                        </span>
-                    </div>
-
-
-                    {/* Payout display */}
-                    <div className="flex flex-col gap-1.5">
-                        <div className="text-sm text-gray-300 flex justify-between">
-                            <span className="text-gray-300">
-                                Your Stake :
-                            </span>
-                            <span className="text-white font-bold">
-                                ${bet.pricePaid.toFixed(2)}
-                            </span>
-
-                        </div>
-                        <div className="text-sm flex justify-between">
-                            <span className="text-gray-300">
-                                {bet.status === "active" && "To Win"}
-                                {bet.status === "won" && "You Won"}
-                                {bet.status === "lost" && "No Payout"}
-                                {bet.status === "cashedOut" && "Cashed"}
-                            </span> {
-                                <span className={`${bet.status === "lost" ? "text-gray-400" : "text-green-400"} font-bold`}>
-                                    ${bet.status === "lost" ? "0.00" : bet.status === "cashedOut" && bet.cashedOut ? bet.cashedOut?.toFixed(2) : bet.payout.toFixed(2)}
-                                </span>
-                            }
-                        </div>
-
-                    </div>
-                </div>
-
-
-
-
-                {/* Sell button */}
-                {/* Cashout gain and percentage display */}
-
-                {!isResolved &&
-                    <div className="mt">
-                        <Button isLoading={isPending} disabled={isPending || !possible} bg={cashoutClicked ? "bg-success" : "bg-transparent"} width="full" className="border-success border" height="extraSmall" onClick={() => cashoutClicked ? handleCashout() : setCashoutClicked(true)}>
-                            <div className="flex justify-center w-full items-center px-4 gap-4">
-
-                                <div className="flex items-center gap-2">
-                                    {/* Main cashout amount */}
-                                    <span className={`text-sm font-bold ${cashoutClicked ? 'text-grayscale-black' : 'text-success'}`}>
-                                        {cashoutClicked ? 'Confirm Cashout ' : 'Cashout for '}
+            {/* MOBILE */}
+            <div className="flex lg:hidden flex-col gap-5 bg-gray-800/50 p-4 rounded-lg">
+                <div className="flex justify-between items-center min-w-0">
+                    <div className="flex items-center gap-4 min-w-0">
+                        {market.imgKey && (
+                            <div className="flex-shrink-0 w-12 h-12 rounded-md overflow-hidden">
+                                <Image
+                                    src={market.imgKey}
+                                    alt={market.name}
+                                    width={250}
+                                    height={250}
+                                    className="object-cover w-full h-full"
+                                />
+                            </div>)}
+                        <div className="flex flex-col gap-1.5 text-sm min-w-0">
+                            <h2 className="text-sm font-medium leading-5.5 line-clamp-1 text-ellipsis break-all">
+                                {market.name}
+                            </h2>
+                            <div className="flex items-center min-w-0">
+                                {!market?.isBinary && (<>
+                                    <span className="font-bold min-w-0 line-clamp-2 text-ellipsis text-sm">
+                                        {bet.outcomeName}
                                     </span>
-
-                                    <span className={`flex text-sm font-bold items-center gap-1.5 ${cashoutClicked ? 'text-grayscale-black' : 'text-success'}`}>
-                                        <DollarIcon className="w-4 h-4" />
-                                        {possible && <NumberFlow locales={"en-US"} value={payout.toNumber()} format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }} />}
-                                    </span>
-                                </div>
-
-
-
-                                {/* Delta percentage badge */}
-                                {deltaProp && !cashoutClicked && (
-                                    <span className={`flex items-center gap-1 px-2 h-5 rounded-full text-xs font-bold pb-[1px]
-
-                                    ${deltaProp.greaterThan(0) ? 'bg-green-400/10 text-success' : 'bg-red-400/10 text-red-400'}`}>
-                                        {deltaProp.greaterThan(0) ? '+' : '-'}
-                                        {<AnimatedOdds prob={deltaProp.abs()} format="percent" />}
-                                    </span>
+                                    <div className="w-[3px] h-[3px] rounded-full bg-gray-600 mx-1.5 mt-0.5"></div>
+                                    <OutcomeBadge smaller className={`${bet.side === "y" ? "bg-[#285cac]" : "bg-[#9a45fe]"}`}>{bet.side === "y" ? "Yes" : "No"}</OutcomeBadge></>
                                 )}
+
+                                {market?.isBinary && (
+                                    <OutcomeBadge smaller className={`${market.outcomes[0].id === bet.outcomeId ? "bg-[#285cac]" : "bg-[#9a45fe]"}`}>{bet.outcomeName}</OutcomeBadge>
+                                )}
+
                             </div>
-                        </Button>
+                        </div>
+
                     </div>
 
-                }
+                </div>
+
+                <div className="grid grid-cols-3 gap-3 w-full">
+                    <div className="flex flex-col text-xs gap-2 min-w-0">
+                        <span className="text-gray-400 font-bold">STAKE</span>
+                        <span className="text-xs font-bold text-white truncate">${bet.pricePaid.toFixed(2)}</span>
+                    </div>
+
+                    <div className="flex flex-col text-xs gap-2 min-w-0">
+                        <span className="text-gray-400 font-bold">TO WIN</span>
+                        <span className="text-xs font-bold text-white truncate">${bet.payout.toFixed(2)}</span>
+                    </div>
+
+                    <div className={`flex flex-col text-xs gap-2 min-w-0 ${(isResolved && bet.status !== "cashedOut") && "justify-center"}`}>
+                        {!isResolved && (
+                            <>
+                                <span className="text-gray-400 font-bold">CASHOUT FOR</span>
+                                <div className="flex items-center gap-2 w-full flex-wrap justify-between">
+                                    <span className="text-xs font-bold text-white flex-shrink">
+                                        ${payout && <NumberFlow locales={"en-US"} value={payout.toNumber()} format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }} />}
+                                    </span>
+                                    {/* {deltaProp && (
+                                <span className={`flex items-center gap-1 px-2 h-6.5 rounded-full text-[10px] font-bold pb-[1px] flex-shrink-0
+                        ${deltaProp.greaterThan(0) ? 'bg-green-400/10 text-success' : 'bg-red-400/10 text-red-400'}`}>
+                                    {deltaProp.greaterThan(0) ? '+' : '-'}
+                                    {<AnimatedOdds prob={deltaProp.abs()} format="percent" />}
+                                </span>
+                            )} */}
+                                </div>
+                            </>
+                        )}
+                        {isResolved && (
+                            <div className="flex flex-col gap-2">
+                                <span className={`text-xs font-bold py-1 px-1.5 rounded-sm text-white whitespace-nowrap w-fit
+                                ${bet.status === "won" && "bg-green-600"}
+                                ${bet.status === "lost" && "bg-orange-700"}
+                                ${bet.status === "cashedOut" && "bg-indigo-600"}`}
+                                >
+                                    {bet.status === "won" && "WIN"}
+                                    {bet.status === "lost" && "LOSS"}
+                                    {bet.status === "cashedOut" && "CASHED"
+                                    }
+                                </span>
+                                {bet.status === "cashedOut" && (<div className="flex gap-1.5 items-center">
+                                    <span className="text-gray-400 font-bold tracking-wider">FOR </span>
+                                    <span className="text-white font-bold"> ${bet.cashedOut?.toFixed(2)} </span>
+
+                                </div>)
+                                }
+                            </div>
+                        )
+                        }
+                    </div>
 
 
+                </div>
+
+                {!isResolved && (
+                    <div className="w-full">
+
+
+                        <Button isLoading={isPending} disabled={isPending || !possible} bg={cashoutClicked ? "bg-primary-blue" : "bg-transparent"} width="full" className="border-primary-blue border h-8" height="small" onClick={() => cashoutClicked ? handleCashout() : setCashoutClicked(true)}>
+                            <span className={`text-sm font-bold ${cashoutClicked ? 'text-gray-200' : 'text-primary-blue'}`}>
+                                Cashout
+                            </span>
+                        </Button>
+                    </div>)}
             </div>
-        </div >
+
+
+
+        </>
     );
 }

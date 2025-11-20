@@ -24,13 +24,13 @@ export default function Button({
   ...rest
 }: ButtonProps) {
   const widthClasses = {
-    small: "px-4",
+    small: "px-3",
     full: "w-full",
   };
 
   const heightClasses = {
-    extraSmall: "h-10.5",
-    small: "h-12",
+    extraSmall: "h-9",
+    small: "h-11",
     large: "h-13.5",
   };
 
@@ -46,9 +46,9 @@ export default function Button({
         text-sm 
         text-white 
         font-medium 
-        rounded-md
+        rounded-lg
         transition-all 
-        duration-200
+        duration-100
         shrink-0
 
         flex

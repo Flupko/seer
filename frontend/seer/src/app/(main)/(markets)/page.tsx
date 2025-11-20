@@ -1,10 +1,9 @@
 
 
 import { getFeaturedCategories } from "@/lib/api";
-import { sortOptions, statusOptions } from "@/lib/definitions";
-import { Header } from "@/ui/markets/home/Header";
-import MarketsDisplay from "@/ui/markets/home/MarketsDisplay";
+import { MarketSearchSchema, sortOptions, statusOptions } from "@/lib/definitions";
 import { redirect } from "next/navigation";
+import MarketsHome from "./markets";
 
 export default async function HomePage({ searchParams }: { searchParams: Promise<{ category?: string, sort?: string, status?: string }> }) {
 
@@ -23,11 +22,23 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
     return redirect('/');
   }
 
+  const parsed = MarketSearchSchema.safeParse({
+    categorySlug,
+    sort,
+    status,
+    pageSize: 8,
+    page: 1,
+  });
+
+  const search = parsed.data;
+
+  if (!parsed.success || !search) {
+    return
+  }
+
+
   return (
-    <div className="pt-3 lg:pt-6 transition-all">
-      <Header activeCategory={category} />
-      <MarketsDisplay categories={categories} />
-    </div>
+    <MarketsHome search={search} activeCategory={category} />
   )
 
 

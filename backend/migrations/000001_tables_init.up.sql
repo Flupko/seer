@@ -299,7 +299,6 @@ CREATE TABLE markets (
     house_ledger_account_id UUID NOT NULL REFERENCES ledger_accounts(id),
     q0_seeding NUMERIC(27, 12) NOT NULL, -- seeding (= nb initial shares for each outcome) when market opens
     alpha NUMERIC(27, 12) NOT NULL, -- alpha applied LS LMSR formula
-    fee NUMERIC(27, 12) NOT NULL, -- fee applied to each bet in proportion: 0.01 <-> 1%, 0.001 <-> 0.1%
     cap_price NUMERIC(27, 12) NOT NULL, -- maximum price for any outcome (for example 0.95 at most)
     volume NUMERIC(27, 12) NOT NULL DEFAULT 0,
     volume_24h NUMERIC(27, 12) NOT NULL DEFAULT 0,
@@ -413,10 +412,9 @@ CREATE TABLE bets (
     ledger_account_id UUID NOT NULL REFERENCES ledger_accounts(id),
     ledger_transfer_id UUID NOT NULL REFERENCES ledger_transfers(id),
     outcome_id BIGINT NOT NULL REFERENCES outcomes(id),
+    side TEXT NOT NULL CHECK (side IN ('y', 'n')), -- 'y' -> buying shares for the outcome, 'n' -> buying shares against the outcome (= all other outcomes)
     payout NUMERIC(27, 12) NOT NULL, -- number of shares bought
     total_price_paid NUMERIC(27, 12) NOT NULL, -- price paid to buy the shares (includes the fee applied)
-    fee_applied NUMERIC(27, 12) NOT NULL, -- fee in propotion, applied to the input price, e.g. 0.01 <-> 1%, 0.001 <-> 0.1%
-    fee_paid NUMERIC(27, 12) NOT NULL, -- fee deduced from the price paid to calculate payout
     avg_price NUMERIC(13, 12) NOT NULL, -- avg price at which the shares were bought
     idempotency_key TEXT NOT NULL,
     placed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -570,10 +568,16 @@ CREATE TABLE comments (
     is_deleted BOOLEAN NOT NULL DEFAULT false,
     deleted_at TIMESTAMPTZ,
 
-    parent_id BIGINT REFERENCES comments(id),
+    parent_id BIGINT REFERENCES comments(id) ON DELETE CASCADE,
     depth BIGINT NOT NULL
 );
 
+CREATE TABLE likes (
+    id BIGSERIAL PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    comment_id BIGINT NOT NULL REFERENCES comments(id) ON DELETE CASCADE,
+    CONSTRAINT likes_user_comment_unique UNIQUE(user_id, comment_id)
+);
 -----------------------------------------------------------------------------------------------------------
 
 CREATE TABLE mutes (

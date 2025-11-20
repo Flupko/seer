@@ -43,7 +43,6 @@ type createMarketReq struct {
 	Slug        string                   `json:"slug" validate:"required,slug,min=3,max=100"`
 	Q0_Seeding  *numeric.BigDecimal      `json:"q0Seeding" validate:"dec_min=1,dec_max=1000"`          // Max seeding of 1000 USDT per shares
 	Alpha       *numeric.BigDecimal      `json:"alpha" validate:"dec_min=0.01,dec_max=1,dec_scale=12"` // Between 0.01 and 1
-	Fee         *numeric.BigDecimal      `json:"fee" validate:"dec_min=0.01,dec_max=0.1"`              // Between 1% and 10%
 	CapPrice    *numeric.BigDecimal      `json:"capPrice" validate:"required,dec_max=1,dec_scale=12"`  // Between 0.5 and 1
 	OutcomeSort market.MarketOutcomeSort `json:"outcomeSort" validate:"required,oneof=price position"`
 	CloseTime   *time.Time               `json:"closeTime"` // Between 1 hour and 7 days
@@ -65,7 +64,6 @@ func (h *AdminMarketHandler) CreateMarket(c echo.Context) error {
 		Currency:    r.Currency,
 		ImgKey:      r.ImgKey,
 		Alpha:       r.Alpha,
-		Fee:         r.Fee,
 		CapPrice:    r.CapPrice,
 		Q0Seeding:   r.Q0_Seeding,
 		OutcomeSort: r.OutcomeSort,
@@ -207,39 +205,6 @@ func (h *AdminMarketHandler) ResolveMarket(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, utils.Envelope{"message": "market successfully resolved"})
-}
-
-type updateMarketFeeReq struct {
-	MarketID uuid.UUID           `json:"marketId"`
-	Fee      *numeric.BigDecimal `json:"fee" validate:"required,dec_min=0.01,dec_max=0.1"` // Between 1% and 10%
-}
-
-func (h *AdminMarketHandler) UpdateMarketFee(c echo.Context) error {
-
-	r := &updateMarketFeeReq{}
-	if err := utils.ParseAndValidateJSON(c.Request().Body, r, h.validate); err != nil {
-		return err
-	}
-
-	ctx := c.Request().Context()
-
-	// Validate current market status is compatible with updating fee
-	status, err := h.am.GetMarketStatus(ctx, r.MarketID)
-
-	if err != nil {
-		return fmt.Errorf("failed to get market status: %w", err)
-	}
-
-	if slices.Contains([]market.MarketStatus{market.StatusCancelled, market.StatusResolved}, status) {
-		return echo.NewHTTPError(http.StatusBadRequest, "market cancelled or closed")
-	}
-
-	if err := h.am.UpdateMarketFees(ctx, r.MarketID, r.Fee); err != nil {
-		return fmt.Errorf("failed to update market fee: %w", err)
-	}
-
-	return c.JSON(http.StatusOK, utils.Envelope{"message": "market fee successfully updated"})
-
 }
 
 type updateOutcomeSortReq struct {

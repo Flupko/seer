@@ -1,4 +1,4 @@
-import { BalanceSchema, CashoutBet, CategorySchema, ChangePasswordPayload, Currency, LoginFormValues, MarketSearch, MarketViewSchema, MetadataSchema, PlaceBet, ProfileCompletionFormValues, RegisterFormValues, SessionsSchema, SetPasswordPayload, UpdateUserPreferences, User, UserBetSearch, UserBetsResSchema, UserPreferencesSchema, UserProfile, UserProfileSchema, UserSchema } from "@/lib/definitions";
+import { BalanceSchema, CashoutBet, CategorySchema, ChangePasswordPayload, CommentSchema, CommentSearch, Currency, InteractComment, LoginFormValues, MarketSearch, MarketViewSchema, MetadataSchema, PlaceBet, PostComment, ProfileCompletionFormValues, RegisterFormValues, SessionsSchema, SetPasswordPayload, UpdateUserPreferences, User, UserBetSearch, UserBetsResSchema, UserPreferencesSchema, UserProfile, UserProfileSchema, UserSchema } from "@/lib/definitions";
 import z from "zod";
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || ""
@@ -294,7 +294,10 @@ export const searchMarket = async (search: MarketSearch) => {
   if (search.query) params.append("query", search.query);
   if (search.categorySlug) params.append("categorySlug", search.categorySlug);
   params.append("sort", search.sort);
-  params.append("status", search.status);
+  if (search.status) {
+    params.append("status", search.status);
+  }
+
   params.append("pageSize", search.pageSize.toString());
   params.append("page", search.page.toString());
   if (search.status) {
@@ -321,9 +324,12 @@ export const searchMarket = async (search: MarketSearch) => {
   const result = MarketSearchResSchema.safeParse(data);
   if (!result.success) {
     console.error(result.error);
+    console.log("failed failed", result.error.issues)
     throw new Error("Invalid market search data");
   }
 
+  console.log("raw data", data.markets);
+  console.log("transformed data", result.data.markets);
   return result.data;
 
 }
@@ -353,7 +359,7 @@ export const getFeaturedCategories = async () => {
   return result.data;
 }
 
-export const getMarket = async (marketId: string) => {
+export const getMarketById = async (marketId: string) => {
   const response = await fetch(`${API_BASE_URL}/market/search/${marketId}`, {});
 
   const data = await response.json();
@@ -498,4 +504,170 @@ export const cashoutBet = async (cashoutBet: CashoutBet) => {
   }
 
   return null;
+}
+
+const CommentsResSchema = z.object({
+  comments: z.array(CommentSchema),
+  metadata: MetadataSchema,
+});
+
+export type CommentsRes = z.infer<typeof CommentsResSchema>
+
+export const getComments = async (search: CommentSearch) => {
+
+  const params = new URLSearchParams();
+  params.append("marketId", search.marketId.toString());
+  if (search.parentId) params.append("parentId", search.parentId.toString());
+  params.append("page", search.page.toString());
+  params.append("pageSize", search.pageSize.toString());
+
+  const response = await fetch(`${API_BASE_URL}/comments?${params.toString()}`, {
+    credentials: "include",
+  });
+  const data = await response.json();
+
+  if (!response.ok) {
+    const error: APIError = {
+      message: data.message || "Failed to fetch comments",
+      errors: data.errors,
+    };
+    throw error;
+  }
+
+  const result = CommentsResSchema.safeParse(data);
+  if (!result.success) {
+    console.error(result.error);
+    throw new Error("Invalid comments data");
+  }
+
+  // Artificial delay for better UX when loading comments
+  await new Promise(resolve => setTimeout(resolve, 500));
+
+  return result.data;
+}
+
+
+export const postComment = async (postCommentReq: PostComment) => {
+
+  const response = await fetch(`${API_BASE_URL}/comments`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    credentials: "include",
+    body: JSON.stringify(postCommentReq),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    const error: APIError = {
+      message: data.message || "Failed to post comment",
+      errors: data.errors,
+    };
+    throw error;
+  }
+
+  return null;
+
+}
+
+export const postLike = async (postLikeReq: InteractComment) => {
+
+  const response = await fetch(`${API_BASE_URL}/comments/like`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    credentials: "include",
+    body: JSON.stringify(postLikeReq),
+  });
+
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    const error: APIError = {
+      message: data.message || "Failed to post comment",
+      errors: data.errors,
+    };
+    throw error;
+  }
+
+  return null;
+
+}
+
+export const deleteLike = async (deleteLikeReq: InteractComment) => {
+
+  const response = await fetch(`${API_BASE_URL}/comments/like`, {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    credentials: "include",
+    body: JSON.stringify(deleteLikeReq),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    const error: APIError = {
+      message: data.message || "Failed to delete comment",
+      errors: data.errors,
+    };
+    throw error;
+  }
+
+  return null;
+
+}
+
+export const deleteComment = async (deleteCommentReq: InteractComment) => {
+  const response = await fetch(`${API_BASE_URL}/comments`, {
+    method: "DELETE",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    credentials: "include",
+    body: JSON.stringify(deleteCommentReq),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    const error: APIError = {
+      message: data.message || "Failed to delete comment",
+      errors: data.errors,
+    };
+    throw error;
+  }
+
+  return null;
+}
+
+
+export const reportComment = async (reportCommentReq: InteractComment) => {
+
+  const response = await fetch(`${API_BASE_URL}/comments/report`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    credentials: "include",
+    body: JSON.stringify(reportCommentReq),
+  });
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    const error: APIError = {
+      message: data.message || "Failed to report comment",
+      errors: data.errors,
+    };
+    throw error;
+  }
+
+  return null;
+
 }

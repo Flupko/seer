@@ -52,8 +52,6 @@ type adminBetSearchRes struct {
 	Status          market.BetStatus    `json:"betStatus"`
 	PricePaid       *numeric.BigDecimal `json:"pricePaid"`
 	Payout          *numeric.BigDecimal `json:"payout"`
-	FeeApplied      *numeric.BigDecimal `json:"feeApplied"`
-	FeePaid         *numeric.BigDecimal `json:"feePaid"`
 	AvgPrice        *numeric.BigDecimal `json:"avgPrice"`
 	MarketID        uuid.UUID           `json:"marketId"`
 	MarketName      string              `json:"marketName"`
@@ -106,8 +104,6 @@ func (h *AdminBetHandler) GetBetsAdmin(c echo.Context) error {
 			Currency:        b.Currency,
 			UserID:          b.User.ID,
 			LedgerAccountID: b.LedgerAccountID,
-			FeeApplied:      b.FeeApplied,
-			FeePaid:         b.FeePaid,
 			PricePaid:       b.TotalPricePaid,
 			AvgPrice:        b.AvgPrice,
 			Payout:          b.Payout,

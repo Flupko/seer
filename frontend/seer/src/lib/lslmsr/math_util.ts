@@ -1,5 +1,5 @@
 import Decimal from "decimal.js";
-import { computeB, SCALE } from "./lslmsr";
+import { computeB } from "./lslmsr";
 
 
 export function truncatePrecision(num: Decimal, precision: number, rounding: Decimal.Rounding): Decimal {
@@ -18,13 +18,6 @@ export function softmaxB(q: number[], alpha: number): number[] {
     const expValues = q.map(qi => Math.exp((qi / b) - maxXi));
     const sumExp = expValues.reduce((a, b) => a + b);
     return expValues.map(expVal => expVal / sumExp);
-}
-
-export function feeFromSpend(spend: Decimal, fee: Decimal): Decimal {
-
-    const feePaid = spend.mul(fee)
-    const feePaidRoundedUp = truncatePrecision(feePaid, SCALE, Decimal.ROUND_UP)
-    return feePaidRoundedUp
 }
 
 

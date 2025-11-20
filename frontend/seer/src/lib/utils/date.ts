@@ -1,6 +1,8 @@
 export function timeSince(date: Date) {
     const seconds = Math.floor((Date.now() - date.getTime()) / 1000);
 
+    if (seconds == 0) return "now";
+
     const units = [
         { limit: 31536000, name: "year" },
         { limit: 2592000, name: "month" },

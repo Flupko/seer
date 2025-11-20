@@ -102,20 +102,20 @@ func (sm *StatManager) addMarketPriceHistory(payload string) error {
 
 	defer tx.Rollback(addCtx)
 
-	var alpha, fee *numeric.BigDecimal
+	var alpha *numeric.BigDecimal
 	var q []*numeric.BigDecimal
 	var outcomeIds []int64
 
 	query := `
-	SELECT m.alpha, m.fee, 
+	SELECT m.alpha,
 	array_agg(o.quantity ORDER BY o.id) AS q_vec,
 	array_agg(o.id ORDER BY o.id) AS outcome_ids
 	FROM markets m
 	JOIN outcomes o ON o.market_id = m.id
 	WHERE m.id = $1
-	GROUP BY m.id, m.alpha, m.fee`
+	GROUP BY m.id, m.alpha`
 
-	if err := tx.QueryRow(addCtx, query, u.MarketID).Scan(&alpha, &fee, &q, &outcomeIds); err != nil {
+	if err := tx.QueryRow(addCtx, query, u.MarketID).Scan(&alpha, &q, &outcomeIds); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrMarketNotFound
 		}
@@ -126,14 +126,24 @@ func (sm *StatManager) addMarketPriceHistory(payload string) error {
 		return errors.New("inconsistent outcomes for market")
 	}
 
-	prices, err := PricesBD(q, alpha, fee)
+	fmt.Println("COMPUTING PRICES")
+
+	prices, err := PricesNormalized(q, alpha)
+	// prices, err := PricesBD(q, alpha)
+
+	for i := range prices {
+		fmt.Println("price i", prices[i])
+	}
+
 	if err != nil {
 		return fmt.Errorf("failed to compute prices for market %s: %w", u.MarketID, err)
 	}
 
-	query = `INSERT INTO outcome_price_history(outcome_id, price) VALUES ($1, $2)`
+	pricesTime := time.Now().UTC()
+
+	query = `INSERT INTO outcome_price_history(outcome_id, price, time) VALUES ($1, $2, $3)`
 	for i := range len(prices) {
-		if _, err := tx.Exec(addCtx, query, outcomeIds[i], prices[i]); err != nil {
+		if _, err := tx.Exec(addCtx, query, outcomeIds[i], prices[i], pricesTime); err != nil {
 			return fmt.Errorf("failed to insert outcome price history: %w", err)
 		}
 	}

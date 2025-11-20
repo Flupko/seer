@@ -74,7 +74,6 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
                         // Depending on the chart interval, we compute current timestamp bucket
                         let bucketDate = new Date();
                         switch (priceChart.timeframe) {
-
                             case '24h':
                                 // 5 minutes buckets
                                 bucketDate = new Date(Math.floor(now.getTime() / (5 * 60 * 1000)) * (5 * 60 * 1000));
@@ -90,19 +89,19 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
                                 bucketDate = new Date(Math.floor(now.getTime() / (4 * 60 * 60 * 1000)) * (4 * 60 * 60 * 1000));
                                 break;
                             case 'all':
-                            // TODO
+                                // 24h buckets
+                                bucketDate = new Date(Math.floor(now.getTime() / (24 * 60 * 60 * 1000)) * (24 * 60 * 60 * 1000));
+                                break;
 
                         }
 
                         const lastPoint = priceChart.prices[priceChart.prices.length - 1];
                         if (lastPoint.date.getTime() === bucketDate.getTime()) {
                             // Replace last point
-                            lastPoint.price = outcome.price;
-                            console.log("Replacing last price point for chart ", priceChart.timeframe, lastPoint, "outcome price:", outcome.price, "outcome", outcome);
+                            lastPoint.price = outcome.priceYesNormalized;
                         } else {
                             // Add new point
-                            console.log("Replacing last price point for chart ", priceChart.timeframe, lastPoint, "outcome price:", outcome.price, "outcome", outcome);
-                            priceChart.prices.push({ timestamp: bucketDate.getTime(), date: bucketDate, price: outcome.price });
+                            priceChart.prices.push({ timestamp: bucketDate.getTime(), date: bucketDate, price: outcome.priceYesNormalized });
                         }
 
                     }

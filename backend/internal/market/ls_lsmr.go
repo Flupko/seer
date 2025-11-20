@@ -257,9 +257,21 @@ func GetMaxSharesCanBuy(buyYes bool, q []decimal.Big, idx int, alpha, budget dec
 
 	lo := zeroDec
 	var hi decimal.Big
-	ctx.Quo(&hi, &budget, &prices[idx])
+	if buyYes {
+		ctx.Quo(&hi, &budget, &prices[idx])
+	} else {
+		var pOther decimal.Big
+		for i := range q {
+			if i == idx {
+				continue
+			}
+			ctx.Add(&pOther, &pOther, &prices[i])
+		}
+		ctx.Quo(&hi, &budget, &pOther)
+	}
+
 	if err := ctx.Err(); err != nil {
-		return zeroDec, fmt.Errorf("failed to compute initial lo: %w", err)
+		return zeroDec, fmt.Errorf("failed to compute initial hi: %w", err)
 	}
 
 	// Create qnext
@@ -269,7 +281,17 @@ func GetMaxSharesCanBuy(buyYes bool, q []decimal.Big, idx int, alpha, budget dec
 	// Prepare bisection
 	f := func(deltaShares decimal.Big) (decimal.Big, error) {
 
-		ctx.Add(&qNext[idx], &q[idx], &deltaShares)
+		if buyYes {
+			ctx.Add(&qNext[idx], &q[idx], &deltaShares)
+		} else {
+			for i := range q {
+				if i == idx {
+					continue
+				}
+				ctx.Add(&qNext[i], &q[i], &deltaShares)
+			}
+		}
+
 		if err := ctx.Err(); err != nil {
 			return zeroDec, fmt.Errorf("failed to compute qNext[idx]: %w", err)
 		}
@@ -397,8 +419,7 @@ func PricesDec(q []decimal.Big, alpha decimal.Big) ([]decimal.Big, error) {
 
 }
 
-// Returns prices in BigDecimal
-func PricesBD(qBD []*numeric.BigDecimal, alphaBD, feeBD *numeric.BigDecimal) ([]*numeric.BigDecimal, error) {
+func PricesNormalized(qBD []*numeric.BigDecimal, alphaBD *numeric.BigDecimal) ([]*numeric.BigDecimal, error) {
 
 	if len(qBD) == 0 {
 		return nil, errors.New("empty q vector")
@@ -409,7 +430,63 @@ func PricesBD(qBD []*numeric.BigDecimal, alphaBD, feeBD *numeric.BigDecimal) ([]
 	}
 
 	alpha := alphaBD.Big
-	fee := feeBD.Big
+	q := make([]decimal.Big, 0, len(qBD))
+	for _, qiBD := range qBD {
+		q = append(q, qiBD.Big)
+	}
+
+	p, err := PricesDec(q, alpha)
+	if err != nil {
+		return nil, fmt.Errorf("PricesDec failed: %w", err)
+	}
+
+	var sumPrices decimal.Big
+
+	for _, pi := range p {
+
+		if pi.Sign() <= 0 {
+			return nil, errors.New("non positive price")
+		}
+
+		ctx.Add(&sumPrices, &sumPrices, &pi)
+
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("failed to cumulate sum pi: %w", err)
+		}
+	}
+
+	// Divide prices by the sum (so they sum to 1)
+
+	pricesNorm := make([]*numeric.BigDecimal, len(qBD))
+
+	for i, pi := range p {
+
+		ctx.Quo(&pi, &pi, &sumPrices)
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("failed to pi / (sumPrices): %w", err)
+		}
+
+		var pN numeric.BigDecimal
+		pN.Big = pi
+		pricesNorm[i] = &pN
+	}
+
+	return pricesNorm, nil
+
+}
+
+// Returns prices in BigDecimal
+func PricesBD(qBD []*numeric.BigDecimal, alphaBD *numeric.BigDecimal) ([]*numeric.BigDecimal, error) {
+
+	if len(qBD) == 0 {
+		return nil, errors.New("empty q vector")
+	}
+
+	if alphaBD.Sign() <= 0 {
+		return nil, errors.New("alpha must be > 0")
+	}
+
+	alpha := alphaBD.Big
 	q := make([]decimal.Big, 0, len(qBD))
 	for _, qiBD := range qBD {
 		q = append(q, qiBD.Big)
@@ -426,14 +503,6 @@ func PricesBD(qBD []*numeric.BigDecimal, alphaBD, feeBD *numeric.BigDecimal) ([]
 		return nil, errors.New("q and pD of different length")
 	}
 
-	// For each outcome we have the following :
-	// price_final = pi * (1 - fee)
-	var oneMinFee decimal.Big
-	ctx.Sub(&oneMinFee, decimal.New(1, 0), &fee)
-	if err := ctx.Err(); err != nil {
-		return nil, fmt.Errorf("failed to compute (1 - fee): %w", err)
-	}
-
 	n := len(q)
 	prices := make([]*numeric.BigDecimal, n)
 
@@ -443,14 +512,7 @@ func PricesBD(qBD []*numeric.BigDecimal, alphaBD, feeBD *numeric.BigDecimal) ([]
 			return nil, errors.New("non positive price")
 		}
 
-		// price_final = (pi * oneMinFee) * 10^6
-		var pf decimal.Big
-		ctx.Mul(&pf, &pi, &oneMinFee)
-		if err := ctx.Err(); err != nil {
-			return nil, fmt.Errorf("failed to multiply pf * oneMinFee: %w", err)
-		}
-
-		pfRounded, err := TruncatePrecision(pf, numeric.Scale, decimal.AwayFromZero)
+		pfRounded, err := TruncatePrecision(pi, numeric.Scale, decimal.AwayFromZero)
 		if err != nil {
 			return nil, fmt.Errorf("failed to truncate pf: %w", err)
 		}
@@ -465,25 +527,24 @@ func PricesBD(qBD []*numeric.BigDecimal, alphaBD, feeBD *numeric.BigDecimal) ([]
 
 }
 
-// PriceAndGainFromBudget applies fees to the budget, buys shares, and returns (gain, feePaid, price)
+// PriceAndGainFromBudget applies fees to the budget, buys shares, and returns (gain, price)
 // price is ceil of the average price shares are bought = (gain / budget)
 // = Purely "indicative", DO NOT USE for business logic
-func PossibleGainFeePriceForBuy(qBD []*numeric.BigDecimal, idx int, alphaBD, feeBD, budgetBD, capBD *numeric.BigDecimal) (bool, *numeric.BigDecimal, *numeric.BigDecimal, *numeric.BigDecimal, error) {
+func PossibleGainPriceForBuy(qBD []*numeric.BigDecimal, idx int, buyYes bool, alphaBD, budgetBD, capBD *numeric.BigDecimal) (bool, *numeric.BigDecimal, *numeric.BigDecimal, error) {
 
 	if len(qBD) == 0 {
-		return false, nil, nil, nil, errors.New("empty q vector")
+		return false, nil, nil, errors.New("empty q vector")
 	}
 
 	if alphaBD.Sign() <= 0 {
-		return false, nil, nil, nil, errors.New("alpha must be > 0")
+		return false, nil, nil, errors.New("alpha must be > 0")
 	}
 
 	if budgetBD.Sign() <= 0 {
-		return false, nil, nil, nil, errors.New("budget must be positive")
+		return false, nil, nil, errors.New("budget must be positive")
 	}
 
 	budget := budgetBD.Big
-	fee := feeBD.Big
 	alpha := alphaBD.Big
 	capPrice := capBD.Big
 
@@ -492,68 +553,69 @@ func PossibleGainFeePriceForBuy(qBD []*numeric.BigDecimal, idx int, alphaBD, fee
 		q = append(q, qiBD.Big)
 	}
 
-	feePaid, err := FeeFromBudget(budget, fee)
-	if err != nil {
-		return false, nil, nil, nil, fmt.Errorf("failed to compute fee: %w", err)
-	}
-
-	var availBudget decimal.Big
-	ctx.Sub(&availBudget, &budget, &feePaid)
-	if err := ctx.Err(); err != nil {
-		return false, nil, nil, nil, fmt.Errorf("failed to compute availBudget: %w", err)
-	}
-
 	// maxShares = gain
-	gainFromBudget, err := GetMaxSharesCanBuy(true, q, idx, alpha, availBudget)
+	gainFromBudget, err := GetMaxSharesCanBuy(buyYes, q, idx, alpha, budget)
 
 	if err != nil {
-		return false, nil, nil, nil, fmt.Errorf("failed to Quote: %w", err)
+		return false, nil, nil, fmt.Errorf("failed to Quote: %w", err)
 	}
 
 	if gainFromBudget.Sign() <= 0 {
-		return false, nil, nil, nil, errors.New("quoted gain is not positive")
+		return false, nil, nil, errors.New("quoted gain is not positive")
 	}
 
 	// Check if after buying gainFromBudget shares, the price is < capPrice
 	qNext := make([]decimal.Big, len(q))
 	copy(qNext, q)
-	ctx.Add(&qNext[idx], &q[idx], &gainFromBudget)
+	if buyYes {
+		ctx.Add(&qNext[idx], &q[idx], &gainFromBudget)
+	} else {
+		for i := range q {
+			if i == idx {
+				continue
+			}
+			ctx.Add(&qNext[i], &q[i], &gainFromBudget)
+		}
+	}
+
 	if err := ctx.Err(); err != nil {
-		return false, nil, nil, nil, fmt.Errorf("failed to compute qNext[idx]: %w", err)
+		return false, nil, nil, fmt.Errorf("failed to compute qNext: %w", err)
 	}
 
 	nextPrices, err := PricesDec(qNext, alpha)
 	if err != nil {
-		return false, nil, nil, nil, fmt.Errorf("failed to compute nextPrices: %w", err)
+		return false, nil, nil, fmt.Errorf("failed to compute nextPrices: %w", err)
 	}
 
-	if nextPrices[idx].Cmp(&capPrice) >= 0 {
-		// Price goes above cap after buy, can't buy
-		return false, nil, nil, nil, nil
+	for i := range len(qBD) {
+		if nextPrices[i].Cmp(&capPrice) >= 0 {
+			// Price goes above cap after buy, can't buy
+			return false, nil, nil, fmt.Errorf("price goes above cap after buy")
+		}
 	}
 
 	// avg price
 	avgPrice, err := computeAvgPrice(budget, gainFromBudget)
 	if err != nil {
-		return false, nil, nil, nil, fmt.Errorf("failed to compute average price: %w", err)
+		return false, nil, nil, fmt.Errorf("failed to compute average price: %w", err)
 	}
 
 	// Round down to 12 decimal places
 	avgPriceRounded, err := TruncatePrecision(avgPrice, numeric.Scale, decimal.AwayFromZero)
 	if err != nil {
-		return false, nil, nil, nil, fmt.Errorf("failed to truncate avgPrice: %w", err)
+		return false, nil, nil, fmt.Errorf("failed to truncate avgPrice: %w", err)
 	}
 
 	gainRounded, err := TruncatePrecision(gainFromBudget, numeric.Scale, decimal.ToZero)
 	if err != nil {
-		return false, nil, nil, nil, fmt.Errorf("failed to truncate gain: %w", err)
+		return false, nil, nil, fmt.Errorf("failed to truncate gain: %w", err)
 	}
 
-	return true, &numeric.BigDecimal{Big: gainRounded}, &numeric.BigDecimal{Big: feePaid}, &numeric.BigDecimal{Big: avgPriceRounded}, nil
+	return true, &numeric.BigDecimal{Big: gainRounded}, &numeric.BigDecimal{Big: avgPriceRounded}, nil
 
 }
 
-func PossibleGainForSell(qBD []*numeric.BigDecimal, idxBought int, alphaBD, nbSharesBoughtBD, capBD *numeric.BigDecimal) (bool, *numeric.BigDecimal, error) {
+func PossibleGainForSell(qBD []*numeric.BigDecimal, idxBought int, boughtYes bool, alphaBD, nbSharesBoughtBD, capBD *numeric.BigDecimal) (bool, *numeric.BigDecimal, error) {
 
 	if len(qBD) == 0 {
 		return false, nil, errors.New("empty q vector")
@@ -583,24 +645,28 @@ func PossibleGainForSell(qBD []*numeric.BigDecimal, idxBought int, alphaBD, nbSh
 	// IE with 2 outcomes, if you bought x shares (for $k) on outcome 0, we buy x shares to outcome 1 to hedge
 	// Your profit is then x - delta C_hedge (how much it cost to hedge)
 
-	for i := range len(qBD) {
-		if i == idxBought {
-			continue
+	if boughtYes {
+		for i := range len(qBD) {
+			if i == idxBought {
+				continue
+			}
+			ctx.Add(&qHedge[i], &q[i], &nbSharesBought)
 		}
-		ctx.Add(&qHedge[i], &q[i], &nbSharesBought)
+	} else {
+		ctx.Add(&qHedge[idxBought], &q[idxBought], &nbSharesBought)
 	}
 
-	// Check if after hedging, the price of the bought outcomes is >= cap
+	if err := ctx.Err(); err != nil {
+		return false, nil, fmt.Errorf("failed to compute qHedge: %w", err)
+	}
+
+	// Check if after hedging, the price of any outcomes is >= cap
 	pricesAfterHedge, err := PricesDec(qHedge, alpha)
 	if err != nil {
 		return false, nil, fmt.Errorf("failed to compute PricesDec after hedge: %w", err)
 	}
 
 	for i := range len(qBD) {
-		if i == idxBought {
-			continue
-		}
-
 		// Price goes above cap after hedge, can't sell
 		if pricesAfterHedge[i].Cmp(&cap) >= 0 {
 			return false, nil, nil

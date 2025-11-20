@@ -3,6 +3,7 @@ import { ModalContainer } from "@/ui/modal/Modal";
 import NavbarMobile from "@/ui/navbar/NavbarMobile";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import { Viewport } from "next";
+import { Inter } from "next/font/google";
 import localFont from "next/font/local";
 import { Suspense } from "react";
 import { ToastContainer } from "react-toastify";
@@ -15,37 +16,64 @@ import { WsProvider } from "./WsProvider";
 export const aeonik = localFont({
   src: [
     // Thin
-    { path: "./fonts/Aeonik-Thin.woff2", weight: "100", style: "normal" },
-    { path: "./fonts/Aeonik-ThinItalic.woff2", weight: "100", style: "italic" },
+    { path: "./fonts/aeonik/Aeonik-Thin.woff2", weight: "100", style: "normal" },
+    { path: "./fonts/aeonik/Aeonik-ThinItalic.woff2", weight: "100", style: "italic" },
 
     // Air (treat as ExtraLight)
-    { path: "./fonts/Aeonik-Air.woff2", weight: "200", style: "normal" },
-    { path: "./fonts/Aeonik-AirItalic.woff2", weight: "200", style: "italic" },
+    { path: "./fonts/aeonik/Aeonik-Air.woff2", weight: "200", style: "normal" },
+    { path: "./fonts/aeonik/Aeonik-AirItalic.woff2", weight: "200", style: "italic" },
 
     // Light
-    { path: "./fonts/Aeonik-Light.woff2", weight: "300", style: "normal" },
-    { path: "./fonts/Aeonik-LightItalic.woff2", weight: "300", style: "italic" },
-
+    { path: "./fonts/aeonik/Aeonik-Light.woff2", weight: "300", style: "normal" },
+    { path: "./fonts/aeonik/Aeonik-LightItalic.woff2", weight: "300", style: "italic" },
     // Regular
-    { path: "./fonts/Aeonik-Regular.woff2", weight: "400", style: "normal" },
-    { path: "./fonts/Aeonik-RegularItalic.woff2", weight: "400", style: "italic" },
+    { path: "./fonts/aeonik/Aeonik-Regular.woff2", weight: "400", style: "normal" },
+    { path: "./fonts/aeonik/Aeonik-RegularItalic.woff2", weight: "400", style: "italic" },
 
     // Medium
-    { path: "./fonts/Aeonik-Medium.woff2", weight: "500", style: "normal" },
-    { path: "./fonts/Aeonik-MediumItalic.woff2", weight: "500", style: "italic" },
-
+    { path: "./fonts/aeonik/Aeonik-Medium.woff2", weight: "500", style: "normal" },
+    { path: "./fonts/aeonik/Aeonik-MediumItalic.woff2", weight: "500", style: "italic" },
     // Bold
-    { path: "./fonts/Aeonik-Bold.woff2", weight: "700", style: "normal" },
-    { path: "./fonts/Aeonik-BoldItalic.woff2", weight: "700", style: "italic" },
+    { path: "./fonts/aeonik/Aeonik-Bold.woff2", weight: "700", style: "normal" },
+    { path: "./fonts/aeonik/Aeonik-BoldItalic.woff2", weight: "700", style: "italic" },
 
     // Black
-    { path: "./fonts/Aeonik-Black.woff2", weight: "900", style: "normal" },
-    { path: "./fonts/Aeonik-BlackItalic.woff2", weight: "900", style: "italic" },
+    { path: "./fonts/aeonik/Aeonik-Black.woff2", weight: "900", style: "normal" },
+    { path: "./fonts/aeonik/Aeonik-BlackItalic.woff2", weight: "900", style: "italic" },
   ],
   display: "swap",
   variable: "--font-aeonik",
   preload: true,
 });
+
+// export const openSauceOne = localFont({
+//   src: [
+//     // Thin
+//     { path: "./fonts/open-sauce-one/OpenSauceOne-Thin.woff2", weight: "100", style: "normal" },
+//     { path: "./fonts/open-sauce-one/OpenSauceOne-ThinItalic.woff2", weight: "200", style: "italic" },
+
+//     // Light
+//     { path: "./fonts/open-sauce-one/OpenSauceOne-Light.woff2", weight: "300", style: "normal" },
+//     { path: "./fonts/open-sauce-one/OpenSauceOne-LightItalic.woff2", weight: "300", style: "italic" },
+
+//     // Regular
+//     { path: "./fonts/open-sauce-one/OpenSauceOne-Regular.woff2", weight: "400", style: "normal" },
+//     { path: "./fonts/open-sauce-one/OpenSauceOne-RegularItalic.woff2", weight: "400", style: "italic" },
+
+//     // Medium
+//     { path: "./fonts/open-sauce-one/OpenSauceOne-Medium.woff2", weight: "500", style: "normal" },
+//     { path: "./fonts/open-sauce-one/OpenSauceOne-MediumItalic.woff2", weight: "500", style: "italic" },
+
+//     // Bold
+//     { path: "./fonts/open-sauce-one/OpenSauceOne-Bold.woff2", weight: "700", style: "normal" },
+//     { path: "./fonts/open-sauce-one/OpenSauceOne-BoldItalic.woff2", weight: "700", style: "italic" },
+//     // Black
+//     { path: "./fonts/open-sauce-one/OpenSauceOne-Black.woff2", weight: "900", style: "normal" },
+//     { path: "./fonts/open-sauce-one/OpenSauceOne-BlackItalic.woff2", weight: "900", style: "italic" },
+
+//   ],
+//   variable: "--font-open-sauce-one",
+// });
 
 // const roboto = Geist({
 //   subsets: ["latin"],
@@ -53,6 +81,15 @@ export const aeonik = localFont({
 //   display: "swap",
 //   weight: ["400", "500", "600", "700", '800'],
 // });
+
+const inter = Inter({
+  subsets: ['latin'],
+  variable: '--font-sans',
+  display: 'swap',
+  weight: ['400', '500', '600', '700', '800'],
+})
+
+
 
 // GEIST, MANROPE, ROBOTTO
 
@@ -104,7 +141,7 @@ export default async function RootLayout({
 
                 {/* Page content */}
                 <div className="overflow-hidden lg:overflow-auto md:h-[calc(100vh-76px)] bg-grayscale-black min-h-[60vh] scrollbar-light">
-                  <div className="min-h-[100vh] pt-5 md:pt-8">
+                  <div className="min-h-[100vh] pt-5 md:pt-6">
                     {children}
                   </div>
 

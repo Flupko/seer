@@ -1,16 +1,20 @@
 import { useModalStore } from "@/lib/stores/modal";
-import Button from "../Button";
 
 export default function NavbarUnlogged() {
     const openModal = useModalStore((state) => state.openModal);
     return (
-        <div className="flex gap-2">
-            <Button bg="bg-gray-special" width="small" onClick={() => openModal("auth", { selectedTab: "login" })}>
-                Login
-            </Button>
-            <Button bg="bg-neon-blue" width="small" onClick={() => openModal("auth", { selectedTab: "register" })}>
-                Register
-            </Button>
+        <div className="flex gap-2 items-center">
+
+            <button
+                className="bg-gray-800 px-3 font-medium rounded-lg h-10 text-[13px] shrink-0 hover:brightness-120 hover:cursor-pointer transition-all active:scale-95 duration-150"
+                onClick={() => openModal("auth", { selectedTab: "login" })}>
+                Log in
+            </button>
+            <button
+                className="bg-primary-blue px-3 font-medium rounded-lg h-10 text-[13px] shrink-0 hover:brightness-120 hover:cursor-pointer transition-all active:scale-95 duration-150"
+                onClick={() => openModal("auth", { selectedTab: "register" })}>
+                Sign up
+            </button>
         </div>
     )
 }

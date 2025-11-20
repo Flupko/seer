@@ -33,6 +33,7 @@ type betReq struct {
 	MinWantedGain  *numeric.BigDecimal `json:"minWantedGain" validate:"required,dec_scale=2,dec_min=0.1,dec_max=1000000"`
 	MarketID       uuid.UUID           `json:"marketId" validate:"required"`
 	OutcomeID      int64               `json:"outcomeId" validate:"required"`
+	Side           market.BetSide      `json:"side" validate:"required,oneof=y n"`
 	Currency       finance.Currency    `json:"currency" validate:"required,oneof=USDT"`
 	IdempotencyKey string              `json:"idempotencyKey" validate:"required,max=36"`
 }
@@ -68,6 +69,15 @@ func (h *TransactionHandler) PlaceBet(c echo.Context) error {
 		MinWantedGain:   b.MinWantedGain,
 		IdempotencyKey:  b.IdempotencyKey,
 		Currency:        "USDT",
+	}
+
+	switch b.Side {
+	case "y":
+		br.Side = market.SideYes
+	case "n":
+		br.Side = market.SideNo
+	default:
+		return echo.NewHTTPError(http.StatusBadRequest, "invalid side, must be 'y' or 'n'")
 	}
 
 	if _, err := h.tm.AddBet(ctx, br); err != nil {

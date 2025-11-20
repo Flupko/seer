@@ -28,18 +28,22 @@ func NewCommentHandler(validate *validator.Validate, cr *repos.CommentRepo) *Com
 
 type addComentReq struct {
 	MarketID uuid.UUID `json:"marketId"`
-	Content  string    `json:"content" validate:"min=3,max=50"`
+	Content  string    `json:"content" validate:"min=3,max=1000"`
 	ParentID *int64    `json:"parentId"` // 0 if no parent
 }
 
 type userCommentRes struct {
-	ID        int64     `json:"id"`
-	UserID    uuid.UUID `json:"userId"`
-	Username  string    `json:"username"`
-	MarketID  uuid.UUID `json:"marketId"`
-	NbReplies int64     `json:"nbReplies"`
-	Content   string    `json:"content"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID         int64          `json:"id"`
+	ParentID   *int64         `json:"parentId,omitempty"`
+	User       *PublicUserRes `json:"user"`
+	MarketID   uuid.UUID      `json:"marketId"`
+	NbReplies  int64          `json:"nbReplies"`
+	NbLikes    int64          `json:"nbLikes"`
+	IsLiked    bool           `json:"isLiked"`
+	IsReported bool           `json:"isReported"`
+	Depth      int64          `json:"depth"`
+	Content    string         `json:"content"`
+	CreatedAt  time.Time      `json:"createdAt"`
 }
 
 func (h *CommentHandler) PostComment(c echo.Context) error {
@@ -48,6 +52,8 @@ func (h *CommentHandler) PostComment(c echo.Context) error {
 	if err := utils.ParseAndValidateJSON(c.Request().Body, r, h.validate); err != nil {
 		return err
 	}
+
+	fmt.Println("len", len(r.Content))
 
 	user := utils.ContextGetUser(c)
 	if user.MutedUntil.Valid && user.MutedUntil.Time.After(time.Now()) {
@@ -90,17 +96,88 @@ func (h *CommentHandler) PostComment(c echo.Context) error {
 		return fmt.Errorf("failed to add comment: %w", err)
 	}
 
+	// Retrieve the comment's view
+	cv, err := h.cr.GetCommentViewByID(ctx, comment.ID, user.ID)
+	if err != nil {
+		return fmt.Errorf("failed to get comment view: %w", err)
+	}
+
 	resp := &userCommentRes{
-		ID:        comment.ID,
-		UserID:    user.ID,
-		Username:  user.Username,
-		MarketID:  comment.MarketID,
-		NbReplies: 0,
-		Content:   comment.Content,
-		CreatedAt: comment.CreatedAt,
+		ID:         cv.ID,
+		User:       UserViewToPublicRes(&cv.User),
+		MarketID:   cv.MarketID,
+		NbReplies:  cv.NbReplies,
+		Content:    cv.Content,
+		CreatedAt:  cv.CreatedAt,
+		Depth:      cv.Depth,
+		NbLikes:    cv.NbLikes,
+		IsLiked:    cv.IsLiked,
+		IsReported: cv.IsReported,
+	}
+
+	if cv.ParentID.Valid {
+		resp.ParentID = &cv.ParentID.Int64
 	}
 
 	return c.JSON(http.StatusCreated, utils.Envelope{"comment": resp})
+
+}
+
+type toggleLikeReq struct {
+	CommentID int64 `json:"commentId" validate:"required"`
+}
+
+func (h *CommentHandler) LikeComment(c echo.Context) error {
+	r := &toggleLikeReq{}
+	if err := utils.ParseAndValidateJSON(c.Request().Body, r, h.validate); err != nil {
+		return err
+	}
+
+	ctx := c.Request().Context()
+	user := utils.ContextGetUser(c)
+
+	l := &repos.Like{
+		UserID:    user.ID,
+		CommentID: r.CommentID,
+	}
+
+	if err := h.cr.LikeComment(ctx, l); err != nil {
+		switch {
+		case errors.Is(err, repos.ErrRecordNotFound):
+			return echo.NewHTTPError(http.StatusNotFound, "comment not found")
+		default:
+			return fmt.Errorf("failed to like comment: %w", err)
+		}
+	}
+
+	return c.JSON(http.StatusOK, utils.Envelope{"message": "comment liked successfully"})
+
+}
+
+func (h *CommentHandler) UnlikeComment(c echo.Context) error {
+	r := &toggleLikeReq{}
+	if err := utils.ParseAndValidateJSON(c.Request().Body, r, h.validate); err != nil {
+		return err
+	}
+
+	ctx := c.Request().Context()
+	user := utils.ContextGetUser(c)
+
+	l := &repos.Like{
+		UserID:    user.ID,
+		CommentID: r.CommentID,
+	}
+
+	if err := h.cr.UnlikeComment(ctx, l); err != nil {
+		switch {
+		case errors.Is(err, repos.ErrRecordNotFound):
+			return echo.NewHTTPError(http.StatusNotFound, "comment not found")
+		default:
+			return fmt.Errorf("failed to unlike comment: %w", err)
+		}
+	}
+
+	return c.JSON(http.StatusOK, utils.Envelope{"message": "comment unliked successfully"})
 
 }
 
@@ -128,8 +205,7 @@ func (h *CommentHandler) UserDeleteComment(c echo.Context) error {
 		}
 	}
 
-	return c.JSON(http.StatusNoContent, utils.Envelope{"message": "comment succesfully deleted"})
-
+	return c.JSON(http.StatusOK, utils.Envelope{"message": "comment successfully deleted"})
 }
 
 func (h *CommentHandler) AdminDeleteComment(c echo.Context) error {
@@ -169,6 +245,8 @@ func (h *CommentHandler) UserGetComments(c echo.Context) error {
 	}
 
 	ctx := c.Request().Context()
+	user := utils.ContextGetUser(c)
+
 	cq := &repos.CommentQuery{
 		MarketID:    &r.MarketID,
 		ParentID:    r.ParentID,
@@ -177,25 +255,34 @@ func (h *CommentHandler) UserGetComments(c echo.Context) error {
 		PageSize:    r.PageSize,
 	}
 
-	comments, err := h.cr.SearchComments(ctx, cq)
+	comments, meta, err := h.cr.SearchComments(ctx, cq, user.ID)
+	fmt.Println("comments", comments)
 	if err != nil {
+		fmt.Println("error", err)
 		return fmt.Errorf("failed to search comments: %w", err)
 	}
 
 	resp := make([]*userCommentRes, 0, len(comments))
-	for _, cm := range comments {
+	for _, cv := range comments {
 		cr := &userCommentRes{
-			ID:        cm.ID,
-			UserID:    cm.UserID,
-			Username:  cm.Username,
-			MarketID:  cm.MarketID,
-			NbReplies: cm.NbReplies,
-			Content:   cm.Content,
-			CreatedAt: cm.CreatedAt,
+			ID:         cv.ID,
+			User:       UserViewToPublicRes(&cv.User),
+			MarketID:   cv.MarketID,
+			NbReplies:  cv.NbReplies,
+			NbLikes:    cv.NbLikes,
+			IsLiked:    cv.IsLiked,
+			IsReported: cv.IsReported,
+			Content:    cv.Content,
+			CreatedAt:  cv.CreatedAt,
+			Depth:      cv.Depth,
+		}
+
+		if cv.ParentID.Valid {
+			cr.ParentID = &cv.ParentID.Int64
 		}
 		resp = append(resp, cr)
 	}
 
-	return c.JSON(http.StatusOK, utils.Envelope{"comments": resp})
+	return c.JSON(http.StatusOK, utils.Envelope{"comments": resp, "metadata": meta})
 
 }

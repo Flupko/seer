@@ -27,15 +27,17 @@ export function ArrowOdds({
     }, [prob]);
 
     return (
-        <span className="flex items-center gap-1">
+        <div className="flex items-center gap-1 relative">
             <AnimatedOdds prob={prob} format={format} />
             {direction && (
-                <OddDeltaArrow
-                    direction={direction}
-                    onComplete={() => setDirection(null)}
-                />
+                <div className="absolute right-0 top-0 translate-x-3 flex items-center h-full pointer-events-none">
+                    <OddDeltaArrow
+                        direction={direction}
+                        onComplete={() => setDirection(null)}
+                    />
+                </div>
             )}
-        </span>
+        </div>
     );
 }
 
@@ -52,8 +54,8 @@ function OddDeltaArrow({
         const controls = animate(
             scope.current,
             direction === 'up'
-                ? { opacity: [0.1, 1, 0.1, 1, 0.1, 1, 0] }
-                : { opacity: [0.1, 1, 0.1, 1, 0.1, 1, 0] },
+                ? { opacity: [0.1, 1, 0.1, 1, 0.1, 1, 1] }
+                : { opacity: [0.1, 1, 0.1, 1, 0.1, 1, 1] },
             {
                 duration: 2.6,
                 ease: 'linear',
@@ -71,7 +73,6 @@ function OddDeltaArrow({
         <motion.span
             ref={scope}
             className={`w-2 h-2 flex items-center mt-[1px]`}
-            aria-label={direction === 'up' ? 'odds up' : 'odds down'}
         >
             {direction === 'up' ? <CaretUpFilled /> : <CaretDownFilled />}
         </motion.span>

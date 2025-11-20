@@ -24,21 +24,19 @@ body {
 
 :root {
 
-  --color-grayscale-black: #080808;
+  --color-grayscale-black: #11171e;
 
-  --color-primary-blue: #1E90FF;
-  /* --color-primary-blue: #49a1f9; */
-  --color-neon-blue: #0080ff;
-  --color-blue-pressed:#004386;
+  --color-primary-blue: #2c9cdb;
+  --color-neon-blue: #2c9cdb;
+  --color-blue-pressed: #135d7f;
 
   --color-error: #f1323e;
   --color-success: #3dd179;
 
-  --primary-blue-filter: brightness(0) saturate(100%) invert(54%) sepia(98%) saturate(1675%) hue-rotate(186deg) brightness(100%) contrast(96%);
-  --neon-blue-filter: brightness(0) saturate(100%) invert(34%) sepia(23%) saturate(7463%) hue-rotate(197deg) brightness(103%) contrast(107%);
+  --primary-blue-filter: brightness(0) saturate(100%) invert(59%) sepia(92%) saturate(2319%) hue-rotate(167deg) brightness(96%) contrast(86%);
 
    /* --color-neon-blue: #26e3a4c0; */
-  --color-gray-special: #292e38;
+  /* --color-gray-special: #292e38;
   --color-gray-900: #121418;
   --color-gray-800: #202329;
   --color-gray-700: #2a2e38;
@@ -47,7 +45,7 @@ body {
   --color-gray-400: #828998;
   --color-gray-300: #9ba5b4;
   --color-gray-200: #bec6d1;
-  --color-gray-100: #e6ecf1;
+  --color-gray-100: #e6ecf1; */
 
   --green-50: #213b3f;
   --green-100: #275749;
@@ -84,11 +82,11 @@ body {
 
 /* Variables */
 @theme {
-  --color-grayscale-black: #080808;
+  --color-grayscale-black: #0f172a;
 
-  --color-primary-blue: #1E90FF;
-  --color-neon-blue: #0080ff;
-  --color-blue-pressed:#004386;
+ --color-primary-blue: #2c9cdb;
+  --color-neon-blue: #7717ff;
+  --color-blue-pressed: #5f12cc;
 
   --color-error: #f1323e;
   --color-success: #3dd179;
@@ -96,7 +94,7 @@ body {
   --primary-blue-filter: brightness(0) saturate(100%) invert(54%) sepia(98%) saturate(1675%) hue-rotate(186deg) brightness(100%) contrast(96%);
   --neon-blue-filter: brightness(0) saturate(100%) invert(34%) sepia(23%) saturate(7463%) hue-rotate(197deg) brightness(103%) contrast(107%);
 
-  --color-gray-special: #292e38;
+  /* --color-gray-special: #292e38;
   --color-gray-900: #121418;
   --color-gray-800: #202329;
   --color-gray-700: #2a2e38;
@@ -105,7 +103,7 @@ body {
   --color-gray-400: #828998;
   --color-gray-300: #9ba5b4;
   --color-gray-200: #bec6d1;
-  --color-gray-100: #e6ecf1;
+  --color-gray-100: #e6ecf1; */
 
   --green-50: #213b3f;
   --green-100: #275749;
@@ -179,6 +177,9 @@ input[type=number] {
 }
 
 
+.price-display {
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
 
 
 /* first primary from which neon was dervied  */

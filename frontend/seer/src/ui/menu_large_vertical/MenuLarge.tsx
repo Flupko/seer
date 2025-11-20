@@ -10,7 +10,7 @@ export default function MenuLarge({ children, ...rest }: { children: React.React
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.12, ease: [0.4, 0, 0.2, 1] }}
-            className="w-55 bg-gray-900 rounded-lg border border-gray-600 py-3.5 px-4 overflow-y-scroll" {...rest}>
+            className="w-55 bg-grayscale-black rounded-xl border border-gray-700 py-3.5 px-4 overflow-y-scroll" {...rest}>
             {children}
         </motion.div>
     )

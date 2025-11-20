@@ -1,5 +1,4 @@
 import { getFeaturedCategories } from "@/lib/api";
-import MainWrapper from "@/ui/MainWrapper";
 import CategoriesMenu from "@/ui/markets/home/categories/CategoriesMenu";
 
 export default async function Layout({ children }: { children: React.ReactNode }) {
@@ -7,10 +6,8 @@ export default async function Layout({ children }: { children: React.ReactNode }
 
     return (
         <>
-            <MainWrapper>
-                <CategoriesMenu categories={categories} />
-                {children}
-            </MainWrapper>
+            <CategoriesMenu categories={categories} />
+            {children}
         </>
     );
 }

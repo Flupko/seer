@@ -96,7 +96,7 @@ export default function Login() {
                     </motion.div>}
 
 
-                <Button bg="bg-neon-blue" width="full" height="large" type="submit" isLoading={mutation.isPending}>
+                <Button bg="bg-primary-blue" width="full" height="large" type="submit" isLoading={mutation.isPending}>
                     Login
                 </Button>
             </form>

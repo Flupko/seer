@@ -15,6 +15,7 @@ export const DecimalSchema = z
       if (val instanceof Decimal) return val;
       return new Decimal(val as string | number);
     } catch {
+      console.error("DecimalSchema: invalid decimal input", val);
       ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Invalid decimal input" });
       return z.NEVER;
     }
@@ -163,7 +164,7 @@ export const MarketStatus = z.enum(['active', 'resolved', 'pending', 'paused']);
 export const MarketSearchSchema = z.object({
   query: z.string().min(3).max(50).optional(),
   categorySlug: z.string().min(1).max(20).optional(),
-  status: MarketStatus.default('active'),
+  status: MarketStatus.optional(),
   sort: MarketSort.default('trending'),
   pageSize: z.number().int().min(3).max(20).default(20),
   page: z.number().int().min(1).default(1),
@@ -181,17 +182,28 @@ export const PriceChartDataPointSchema = z.object({
 
 export type PriceChartDataPoint = z.infer<typeof PriceChartDataPointSchema>;
 
+export const TimeframeSchema = z.enum(["24h", "7d", "30d", "all"]);
+
+export type Timeframe = z.infer<typeof TimeframeSchema>;
+
 export const PriceChartSchema = z.object({
-  timeframe: z.enum(["24h", "7d", "30d", "all"]),
+  timeframe: TimeframeSchema,
   prices: z.array(PriceChartDataPointSchema),
 });
+
+export type PriceChart = z.infer<typeof PriceChartSchema>;
 
 export const OutcomeSchema = z.object({
   id: z.number(),
   name: z.string(),
   quantity: DecimalSchema,
   position: z.number().int(),
-  price: DecimalSchema.default(new Decimal(0)),
+
+  priceYes: DecimalSchema.default(new Decimal(0)),
+  priceNo: DecimalSchema.default(new Decimal(0)),
+  priceYesNormalized: DecimalSchema.default(new Decimal(0)),
+  priceNoNormalized: DecimalSchema.default(new Decimal(0)),
+
   priceCharts: z.array(PriceChartSchema).optional(),
 });
 
@@ -209,13 +221,13 @@ export type MarketResolution = z.infer<typeof MarketResolutionSchema>;
 export const MarketViewSchema = z.object({
   id: z.uuid(),
   name: z.string(),
-  description: z.string().nullable(),
+  description: z.string(),
+  isBinary: z.boolean().default(true),
   imgKey: z.string().optional(),
   slug: z.string(),
   closeTime: z.coerce.date().optional(),
   outcomeSort: z.enum(['price', 'position']),
   alpha: DecimalSchema,
-  fee: DecimalSchema,
   capPrice: DecimalSchema,
   totalVolume: DecimalSchema,
   categories: z.array(CategorySchema),
@@ -225,6 +237,7 @@ export const MarketViewSchema = z.object({
   version: z.number().int().default(0),
 }).transform((market) => {
   // Compute prices for each outcome
+  market.isBinary = market.outcomes.length === 2;
   pricesForMarket(market);
   return market
 });
@@ -254,11 +267,15 @@ export const BalanceSchema = z.object({
 
 export type Balance = z.infer<typeof BalanceSchema>;
 
+const BetSideSchema = z.enum(['y', 'n']);
+export type BetSide = z.infer<typeof BetSideSchema>;
+
 export const PlaceBetSchema = z.object({
   betAmount: DecimalSchema,
   minWantedGain: DecimalSchema,
   marketId: z.uuid(),
   outcomeId: z.number().int(),
+  side: BetSideSchema,
   currency: CurrencySchema,
   idempotencyKey: z.string().min(1).max(36),
 });
@@ -320,6 +337,7 @@ export const BetSchema = z.object({
   marketName: z.string(),
   marketImgKey: z.string().optional(),
   outcomeId: z.number().int(),
+  side: BetSideSchema,
   outcomeName: z.string(),
   placedAt: z.coerce.date(),
 });
@@ -343,3 +361,61 @@ export const UserBetSearchSchema = z.object({
 });
 
 export type UserBetSearch = z.infer<typeof UserBetSearchSchema>;
+
+// type userCommentRes struct {
+// 	ID        int64          `json:"id"`
+// 	ParentID  *int64         `json:"parentId,omitempty"`
+// 	User      *PublicUserRes `json:"user,omitempty"`
+// 	MarketID  uuid.UUID      `json:"marketId"`
+// 	NbReplies int64          `json:"nbReplies"`
+// 	Content   string         `json:"content"`
+// 	CreatedAt time.Time      `json:"createdAt"`
+// }
+
+export const CommentSchema = z.object({
+  id: z.number().int(),
+  user: UserProfileSchema,
+  marketId: z.uuid(),
+  nbReplies: z.int(),
+  nbLikes: z.int(),
+  isLiked: z.boolean(),
+  isReported: z.boolean(),
+  content: z.string(),
+  createdAt: z.coerce.date(),
+  parentId: z.number().int().optional(),
+  depth: z.number(),
+});
+
+export type Comment = z.infer<typeof CommentSchema>;
+
+
+// type commentSearchUserReq struct {
+// 	MarketID uuid.UUID `query:"marketId" validate:"required"`
+// 	ParentID *int64    `query:"parentId"`
+
+// 	Page     int64 `query:"page" validate:"min=1"`
+// 	PageSize int64 `query:"pageSize" validate:"min=4,max=20"`
+// }
+
+export const CommentSearchSchema = z.object({
+  marketId: z.uuid(),
+  parentId: z.number().optional(),
+  pageSize: z.number().int().min(4).max(20).default(20),
+  page: z.number().int().min(1).default(1),
+})
+
+export type CommentSearch = z.infer<typeof CommentSearchSchema>
+
+export const PostCommentSchema = z.object({
+  marketId: z.uuid(),
+  content: z.string().min(3).max(500),
+  parentId: z.number().optional(),
+});
+
+export type PostComment = z.infer<typeof PostCommentSchema>
+
+export const InteractCommentSchema = z.object({
+  commentId: z.number(),
+});
+
+export type InteractComment = z.infer<typeof InteractCommentSchema>

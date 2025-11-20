@@ -40,7 +40,7 @@ export default function BetsLiveTable({ bets, parity }: { bets: BetUpdate[], par
                         >
                             <TableCell className="w-[15%] hidden sm:table-cell" current={index % 2 === parity}>
                                 {bet.user ?
-                                    <span className="line-clamp-1 hover:text-gray-400 duration-200 w-fit active:scale-95 cursor-pointer"
+                                    <span className="line-clamp-1 hover:text-gray-400 duration-100 w-fit active:scale-95 cursor-pointer"
                                         onClick={() => setParams({ show: 'user', username: bet.user?.username })}>
                                         {bet.user.username}
                                     </span> :
@@ -52,13 +52,13 @@ export default function BetsLiveTable({ bets, parity }: { bets: BetUpdate[], par
                             </TableCell>
 
                             <TableCell className="w-2/3 sm:w-[30%]" current={index % 2 === parity}>
-                                <BetTableLink href={`/market/${bet.marketSlug}`}>
+                                <BetTableLink href={`/market/${bet.marketID}`}>
                                     {bet.marketName}
                                 </BetTableLink>
                             </TableCell>
 
                             <TableCell className="w-[25%] hidden sm:table-cell" current={index % 2 === parity}>
-                                <BetTableLink href={`/market/${bet.marketSlug}`}>
+                                <BetTableLink href={`/market/${bet.marketID}`}>
                                     {bet.outcomeName}
                                 </BetTableLink>
                             </TableCell>

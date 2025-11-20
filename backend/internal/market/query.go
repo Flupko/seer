@@ -88,7 +88,7 @@ func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skip
 	query := fmt.Sprintf(`SELECT count(*) OVER() AS total_count,
 	m.id, m.name, m.description, m.img_key, m.slug,
 	m.status,
-	m.house_ledger_account_id, m.q0_seeding, m.alpha, m.fee, m.cap_price,
+	m.house_ledger_account_id, m.q0_seeding, m.alpha, m.cap_price,
 	m.volume,
 	m.created_at, m.close_time, 
 	m.outcome_sort,
@@ -130,7 +130,7 @@ func (qm *QueryManager) SearchMarkets(ctx context.Context, sq *SearchQuery, skip
 			&totalCount,
 			&m.ID, &m.Name, &m.Description, &m.ImgKey, &m.Slug,
 			&m.Status,
-			&m.HouseLedgerAccountID, &m.Q0Seeding, &m.Alpha, &m.Fee, &m.CapPrice,
+			&m.HouseLedgerAccountID, &m.Q0Seeding, &m.Alpha, &m.CapPrice,
 			&m.Volume,
 
 			&m.CreatedAt, &m.CloseTime, &m.OutcomeSort,
@@ -308,7 +308,7 @@ func (qm *QueryManager) getCategoriesForMarkets(ctx context.Context, marketIDs [
 func (qm *QueryManager) GetMarketByID(ctx context.Context, marketID uuid.UUID) (*MarketView, error) {
 	query := `SELECT m.id, m.name, m.description, m.img_key, slug,
 	m.status,
-	m.house_ledger_account_id, m.q0_seeding, m.alpha, m.fee, m.cap_price,
+	m.house_ledger_account_id, m.q0_seeding, m.alpha, m.cap_price,
 	m.volume,
 	m.created_at, m.close_time, 
 	m.outcome_sort,
@@ -327,7 +327,7 @@ func (qm *QueryManager) GetMarketByID(ctx context.Context, marketID uuid.UUID) (
 	err := qm.db.QueryRow(ctx, query, marketID).Scan(
 		&m.ID, &m.Name, &m.Description, &m.ImgKey, &m.Slug,
 		&m.Status,
-		&m.HouseLedgerAccountID, &m.Q0Seeding, &m.Alpha, &m.Fee, &m.CapPrice,
+		&m.HouseLedgerAccountID, &m.Q0Seeding, &m.Alpha, &m.CapPrice,
 		&m.Volume,
 		&m.CreatedAt, &m.CloseTime, &m.OutcomeSort,
 		&resolutionID, &resolutionMarketID, &resolutionWinningOutcomeID, &resolutionCreatedAt,
@@ -414,12 +414,27 @@ func (qm *QueryManager) retrievePricesMarket(ctx context.Context, outcomes []int
 				continue
 			}
 
+			// Ensure startTime is not older than the timeframe window (take the later time)
+			minStart := time.Now().UTC().Add(-spec.interval)
+			if startTime.Before(minStart) {
+				startTime = minStart
+			}
+
 			query := fmt.Sprintf(`SELECT
-			locf(last(close_price, bucket)) AS close_price,
+			locf(
+				last(close_price, bucket),
+				prev => (
+					SELECT close_price 
+					FROM %s 
+					WHERE outcome_id = $3 AND bucket <= $2 
+					ORDER BY bucket DESC 
+					LIMIT 1
+				)
+			) AS close_price,
 			time_bucket_gapfill($1, bucket, start => $2, finish => NOW()) AS date
 			FROM %s
-			WHERE outcome_id = $3
-			GROUP BY date`, spec.table)
+			WHERE outcome_id = $3 AND bucket >= $2
+			GROUP BY date`, spec.table, spec.table)
 
 			prices := []PriceChartDataPoint{}
 
