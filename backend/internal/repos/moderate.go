@@ -70,7 +70,7 @@ func (r *ModerateRepo) MuteUser(ctx context.Context, m *Mute, chatMessagesIDs []
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	query := `INSERT INTO mutes(user_id, reason, effective_until) VALUES($1, $2, $3) RETURNING id, created_at`
 

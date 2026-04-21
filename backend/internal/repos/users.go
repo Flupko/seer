@@ -146,7 +146,7 @@ func (r *UserRepo) Insert(ctx context.Context, user *User) error {
 		return fmt.Errorf("failed to begin tx")
 	}
 
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }() //nolint:errcheck
 
 	query := `INSERT INTO users(email, username, profile_image_key, password_hash, provider_id, provider_user_id, status)
     VALUES ($1, $2, $3, $4, $5, $6, $7)
@@ -324,7 +324,7 @@ func (r *UserRepo) ChangePassword(ctx context.Context, user *User) error {
 		return fmt.Errorf("failed to begin tx")
 	}
 
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	query := `
         UPDATE users

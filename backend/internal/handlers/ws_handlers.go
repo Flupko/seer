@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"seer/internal/chat"
 	"seer/internal/market"
 	"seer/internal/repos"
@@ -252,7 +251,6 @@ func (h *WsHandler) HandleJoinChatRoom(c *ws.Client, reqPayload string) {
 	}
 	msgs, err := h.cm.GetLastMessagesChat(ctx, p.ChatSlug)
 	if err != nil {
-		fmt.Println("error getting last messages:", err)
 		switch {
 		case errors.Is(err, chat.ErrChatRoomNotFound):
 			h.sendError(c, ErrCodeChatRoomNotFound)
@@ -335,11 +333,6 @@ func (h *WsHandler) HandleSendMessage(c *ws.Client, reqPayload string) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(c.Ctx, 5*time.Second)
-	defer cancel()
-
-	_ = ctx
-
 	p := &SendMessagePayload{}
 	if err := utils.ReadJson(strings.NewReader(reqPayload), p); err != nil {
 		switch {
@@ -358,13 +351,15 @@ func (h *WsHandler) HandleSendMessage(c *ws.Client, reqPayload string) {
 		return
 	}
 
+	ctx, cancel := context.WithTimeout(c.Ctx, 5*time.Second)
+	defer cancel()
+
 	sent, err := h.cm.SendMessage(ctx, c.User, p.Message, p.ChatSlug)
 	if err != nil {
 		switch {
 		case errors.Is(err, chat.ErrChatRoomNotFound):
 			h.sendError(c, ErrCodeChatRoomNotFound)
 		default:
-			fmt.Println("internal err send", err)
 			h.sendError(c, ErrCodeInternalError)
 		}
 		return

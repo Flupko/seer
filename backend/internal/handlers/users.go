@@ -48,7 +48,6 @@ func (h *UserHandler) UserMe(c echo.Context) error {
 
 	userView, err := h.ur.GetViewByIDOrUsername(ctx, user.ID, "")
 	if err != nil {
-		fmt.Println(err)
 		return fmt.Errorf("failed to get user: %w", err)
 	}
 

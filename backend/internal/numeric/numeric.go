@@ -35,7 +35,9 @@ func (d *BigDecimal) ScanNumeric(v pgtype.Numeric) error {
 func (d BigDecimal) NumericValue() (pgtype.Numeric, error) {
 	var n pgtype.Numeric
 	if d.Sign() == 0 {
-		n.Scan("0")
+		if err := n.Scan("0"); err != nil {
+			return n, err
+		}
 		return n, nil
 	}
 	return n, n.Scan(d.String())

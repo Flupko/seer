@@ -45,12 +45,21 @@ func SetupValidator() *validator.Validate {
 		return bd
 	}, (*numeric.BigDecimal)(nil))
 
-	v.RegisterValidation("dec_min", BigDecimalMinValidation)
-	v.RegisterValidation("dec_max", BigDecimalMaxValidation)
-	v.RegisterValidation("dec_scale", BigDecimalScaleValidation)
-
-	v.RegisterValidation("token_plain", validateTokenPlain)
-	v.RegisterValidation("slug", validateSlug)
+	if err := v.RegisterValidation("dec_min", BigDecimalMinValidation); err != nil {
+		panic(fmt.Sprintf("failed to register dec_min validator: %v", err))
+	}
+	if err := v.RegisterValidation("dec_max", BigDecimalMaxValidation); err != nil {
+		panic(fmt.Sprintf("failed to register dec_max validator: %v", err))
+	}
+	if err := v.RegisterValidation("dec_scale", BigDecimalScaleValidation); err != nil {
+		panic(fmt.Sprintf("failed to register dec_scale validator: %v", err))
+	}
+	if err := v.RegisterValidation("token_plain", validateTokenPlain); err != nil {
+		panic(fmt.Sprintf("failed to register token_plain validator: %v", err))
+	}
+	if err := v.RegisterValidation("slug", validateSlug); err != nil {
+		panic(fmt.Sprintf("failed to register slug validator: %v", err))
+	}
 	return v
 }
 

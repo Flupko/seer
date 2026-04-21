@@ -15,7 +15,6 @@ var ctx = decimal.Context{
 	Traps:         ^(decimal.Inexact | decimal.Subnormal),
 }
 
-var minShares = *decimal.New(1, 2) // 0.1 share minimum to buy
 var zeroDec = *decimal.New(0, 0)
 
 // README
@@ -176,8 +175,6 @@ func Cost(q []decimal.Big, alpha decimal.Big) (decimal.Big, error) {
 	return cost, nil
 
 }
-
-var maxHi = decimal.New(1<<59, 0)
 
 func Bisect(lo, hi, tol decimal.Big, f func(x decimal.Big) (decimal.Big, error)) (decimal.Big, error) {
 

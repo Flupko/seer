@@ -182,7 +182,7 @@ func (nm *NotificationManager) NotifyMarketWinningUsers(payload string) error {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
-	defer tx.Rollback(updateCtx)
+	defer func() { _ = tx.Rollback(updateCtx) }()
 
 	query = `INSERT INTO notifications (user_id, type, data) VALUES ($1, $2, $3)`
 	for _, n := range notifs {

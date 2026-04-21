@@ -37,8 +37,11 @@ func main() {
 
 	log.Printf("GOMAXPROCS=%d NumCPU=%d", runtime.GOMAXPROCS(0), runtime.NumCPU())
 
-	initCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
-	defer cancel()
+	initCtx, initCancel := context.WithTimeout(context.Background(), time.Minute)
+	defer initCancel()
+
+	appCtx, appCancel := context.WithCancel(context.Background())
+	defer appCancel()
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
@@ -62,10 +65,14 @@ func main() {
 	defer db.Close()
 	logger.Info("database connection pool established")
 
+	redisAddr := os.Getenv("REDIS_ADDR")
+	if redisAddr == "" {
+		redisAddr = "valkey:6379"
+	}
 	rdb := redis.NewClient(&redis.Options{
-		Addr:     "valkey:6379",
-		Password: "", // no password set
-		DB:       0,  // use default DB
+		Addr:     redisAddr,
+		Password: os.Getenv("REDIS_PASSWORD"),
+		DB:       0,
 	})
 
 	validate := utils.SetupValidator()
@@ -90,16 +97,16 @@ func main() {
 
 	// Market related
 	transactionManager := market.NewTransactionManager(rdb, db, logger)
-	marketStateManager := market.NewStateManager(context.TODO(), rdb, db, logger)
+	marketStateManager := market.NewStateManager(appCtx, rdb, db, logger)
 	marketStateManager.Start()
 	adminManager := market.NewAdminManager(db)
 	betManager := market.NewBetManager(db)
 	queryManager := market.NewQueryManager(db, rdb)
-	betLiveManager := market.NewBetLiveManager(context.TODO(), rdb, db, logger)
-	statsManager := market.NewStatManager(context.TODO(), rdb, db, logger)
-	statsManager.Start(context.TODO())
+	betLiveManager := market.NewBetLiveManager(appCtx, rdb, db, logger)
+	statsManager := market.NewStatManager(appCtx, rdb, db, logger)
+	statsManager.Start(appCtx)
 	volumeCalculator := market.NewVolumeCalculator(db, logger, 10*time.Minute)
-	volumeCalculator.Start(context.TODO())
+	volumeCalculator.Start(appCtx)
 
 	if err = betLiveManager.PrepopulateLatestBets(initCtx); err != nil {
 		logger.Error("failed to prepopulate latest bets", "error", err)
@@ -114,7 +121,7 @@ func main() {
 	betLiveManager.Start()
 
 	// Balance pusher
-	balancePusher := balance.NewBalancePusher(context.TODO(), rdb, db, logger)
+	balancePusher := balance.NewBalancePusher(appCtx, rdb, db, logger)
 	balancePusher.Start()
 
 	// Chat
@@ -128,14 +135,14 @@ func main() {
 	financeManager := finance.NewFinanceManager(db)
 
 	// Notifications
-	notificationManager := notif.NewNotificationManager(context.TODO(), logger, rdb, db)
+	notificationManager := notif.NewNotificationManager(appCtx, logger, rdb, db)
 	notificationManager.Start()
 
 	// Initialize sockets
-	onlinePusher := ws.NewOnlinePusher(context.TODO(), rdb, logger)
+	onlinePusher := ws.NewOnlinePusher(appCtx, rdb, logger)
 	onlinePusher.Start()
 	wsHandlers := handlers.NewWsHandler(betLiveManager, marketStateManager, chatManager, onlinePusher, validate)
-	hub := ws.NewHub(context.TODO(), logger, rdb)
+	hub := ws.NewHub(appCtx, logger, rdb)
 	wsRouter := ws.NewSocketRouter(validate)
 
 	wsRouter.AddRouteHandler("subscribe:markets_update", wsHandlers.HandleJoinMarketRooms)
@@ -175,6 +182,7 @@ func main() {
 	authHandler, err := handlers.NewAuthHandler(initCtx, validate, logger, userRepo, sessionRepo, tokenRepo, geoService)
 	if err != nil {
 		logger.Error("failed to initialize auth handler", "error", err)
+		os.Exit(1)
 	}
 
 	transactionHandler := handlers.NewTransactionHandler(validate, transactionManager, financeManager)
@@ -219,11 +227,11 @@ func main() {
 	e.POST("/market/cashout", authMiddleware.RequireAuthentication(transactionHandler.CashoutBet))
 	e.GET("/my/bets", authMiddleware.RequireAuthentication(marketHandler.GetPersonnalBets))
 	e.GET("/market/search", marketHandler.GetMarketsUser)
-	e.GET("/market/search/:id", marketHandler.GetMarketUser)
 	e.GET("/market/search/slug/:slug", marketHandler.GetMarketUser)
+	e.GET("/market/search/:id", marketHandler.GetMarketUser)
 	e.GET("/bet/:id", marketHandler.PublicGetBet)
 
-	e.GET("market/categories/featured", marketHandler.GetAllFeaturedCategories)
+	e.GET("/market/categories/featured", marketHandler.GetAllFeaturedCategories)
 
 	e.GET("/notifications", authMiddleware.RequireAuthentication(notifHandler.GetUnreadNotifications))
 	e.POST("/notifications/read", authMiddleware.RequireAuthentication(notifHandler.ReadNotifications))
@@ -236,19 +244,22 @@ func main() {
 
 	e.POST("/comments/report", authMiddleware.RequireAuthentication(userModateHandler.ReportComment))
 	e.POST("/admin/market", authMiddleware.RequireRole(adminMarketHandler.CreateMarket, repos.AdminRole))
-	e.POST("admin/market/settle", authMiddleware.RequireRole(adminMarketHandler.ResolveMarket, repos.AdminRole))
-	e.PATCH("admin/market/resume", authMiddleware.RequireRole(adminMarketHandler.ResumeMarket, repos.AdminRole))
-	e.PATCH("admin/market/pause", authMiddleware.RequireRole(adminMarketHandler.PauseMarket, repos.AdminRole))
+	e.POST("/admin/market/settle", authMiddleware.RequireRole(adminMarketHandler.ResolveMarket, repos.AdminRole))
+	e.PATCH("/admin/market/resume", authMiddleware.RequireRole(adminMarketHandler.ResumeMarket, repos.AdminRole))
+	e.PATCH("/admin/market/pause", authMiddleware.RequireRole(adminMarketHandler.PauseMarket, repos.AdminRole))
 
-	e.DELETE("admin/comments", authMiddleware.RequireRole(commentHandler.AdminDeleteComment, repos.AdminRole))
-	e.POST("admin/bets", authMiddleware.RequireRole(adminBetHandler.GetBetsAdmin, repos.AdminRole))
-	e.POST("admin/moderate/mute", authMiddleware.RequireRole(adminModerateHandler.GetUserMute, repos.AdminRole))
-	e.POST("admin/moderate/mute", authMiddleware.RequireRole(adminModerateHandler.MuteUser, repos.AdminRole))
-	e.POST("admin/moderate/mutes", authMiddleware.RequireRole(adminModerateHandler.SearchMutes, repos.AdminRole))
-	e.PATCH("admin/moderate/unmute", authMiddleware.RequireRole(adminModerateHandler.UnmuteUser, repos.AdminRole))
-	e.POST("admin/moderate/reports", authMiddleware.RequireRole(adminModerateHandler.GetReportedComments, repos.AdminRole))
+	e.DELETE("/admin/comments", authMiddleware.RequireRole(commentHandler.AdminDeleteComment, repos.AdminRole))
+	e.POST("/admin/bets", authMiddleware.RequireRole(adminBetHandler.GetBetsAdmin, repos.AdminRole))
+	e.GET("/admin/moderate/mute", authMiddleware.RequireRole(adminModerateHandler.GetUserMute, repos.AdminRole))
+	e.POST("/admin/moderate/mute", authMiddleware.RequireRole(adminModerateHandler.MuteUser, repos.AdminRole))
+	e.POST("/admin/moderate/mutes", authMiddleware.RequireRole(adminModerateHandler.SearchMutes, repos.AdminRole))
+	e.PATCH("/admin/moderate/unmute", authMiddleware.RequireRole(adminModerateHandler.UnmuteUser, repos.AdminRole))
+	e.POST("/admin/moderate/reports", authMiddleware.RequireRole(adminModerateHandler.GetReportedComments, repos.AdminRole))
 
-	e.Start(":4000")
+	if err := e.Start(":4000"); err != nil {
+		logger.Error("server stopped", "error", err)
+		os.Exit(1)
+	}
 
 }
 

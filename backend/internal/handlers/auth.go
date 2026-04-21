@@ -56,14 +56,12 @@ func NewAuthHandler(ctx context.Context,
 
 	// Setup Google provider
 	googleProvider, err := oidc.NewProvider(ctx, "https://accounts.google.com")
-	_ = err
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize Google provider: %w", err)
 	}
 
 	// Setup Twitch provider
 	twitchProvider, err := oidc.NewProvider(ctx, "https://id.twitch.tv/oauth2")
-	_ = err
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize Twitch provider: %w", err)
 	}
@@ -208,7 +206,7 @@ func (h *AuthHandler) GetAuthCallback(c echo.Context) (test error) {
 	switch user.Status {
 	case repos.PendingProfile:
 		// Clean up existing profile completion tokens
-		h.tokenRepo.DeleteAllForUser(ctx, repos.ScopeProfileCompletion, user.ID)
+		_ = h.tokenRepo.DeleteAllForUser(ctx, repos.ScopeProfileCompletion, user.ID)
 
 		// Generate profile completion token
 		tokenPlain, token, err := repos.GenerateToken(user.ID, repos.ScopeProfileCompletion, 5*time.Minute)
@@ -418,7 +416,6 @@ func (h *AuthHandler) Logout(c echo.Context) error {
 	user := utils.ContextGetUser(c)
 	err := h.sessionRepo.RevokeSession(ctx, user.SessionID, user.ID)
 	if err != nil && !errors.Is(err, repos.ErrRecordNotFound) {
-		fmt.Println("failed to revoke session:", err)
 		return fmt.Errorf("failed to revoke session: %w", err)
 	}
 
@@ -672,7 +669,6 @@ func (h *AuthHandler) createSession(c echo.Context, userID uuid.UUID) error {
 
 	// Parse userAgent
 	ua := useragent.Parse(uaRaw)
-	// TODO GEO location from IP
 	sessionPlain, session, err := repos.GenerateSession(userID, 14*24*time.Hour, ip, uaRaw, ua.OS, ua.Name, ua.Device, country, city)
 	if err != nil {
 		return fmt.Errorf("failed to generate session: %w", err)

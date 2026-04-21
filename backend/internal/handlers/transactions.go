@@ -7,7 +7,6 @@ import (
 	"seer/internal/market"
 	"seer/internal/numeric"
 	"seer/internal/utils"
-	"time"
 
 	"github.com/go-playground/validator/v10"
 	"github.com/google/uuid"
@@ -39,12 +38,6 @@ type betReq struct {
 }
 
 func (h *TransactionHandler) PlaceBet(c echo.Context) error {
-
-	start := time.Now()
-	defer func() {
-		elapsed := time.Since(start)
-		fmt.Println("elpased", elapsed)
-	}()
 
 	b := &betReq{}
 	if err := utils.ParseAndValidateJSON(c.Request().Body, b, h.validate); err != nil {
@@ -81,7 +74,6 @@ func (h *TransactionHandler) PlaceBet(c echo.Context) error {
 	}
 
 	if _, err := h.tm.AddBet(ctx, br); err != nil {
-		fmt.Println("error placing bet:", err)
 		return mapErrorRepo(err)
 	}
 
@@ -111,7 +103,6 @@ func (h *TransactionHandler) CashoutBet(c echo.Context) error {
 	}
 
 	if _, err := h.tm.CashoutBet(ctx, cr); err != nil {
-		fmt.Println("error cashing out bet:", err)
 		return mapErrorRepo(err)
 	}
 

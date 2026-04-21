@@ -28,7 +28,7 @@ func (am *AdminManager) CreateMarket(ctx context.Context, m *Market, categoryIDs
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	// Insert a new house ledger specially for this market
 	query := `INSERT INTO ledger_accounts(account_type, currency, allow_negative_balance, allow_positive_balance)
@@ -192,7 +192,7 @@ func (ma *AdminManager) UpdateOutcomePositions(ctx context.Context, marketID uui
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
 
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	for _, o := range outcomes {
 		cmd, err := tx.Exec(ctx, query, o.Position, o.ID, marketID)

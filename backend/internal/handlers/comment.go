@@ -53,8 +53,6 @@ func (h *CommentHandler) PostComment(c echo.Context) error {
 		return err
 	}
 
-	fmt.Println("len", len(r.Content))
-
 	user := utils.ContextGetUser(c)
 	if user.MutedUntil.Valid && user.MutedUntil.Time.After(time.Now()) {
 		return echo.NewHTTPError(http.StatusForbidden, "Muted user can't post comments")
@@ -256,9 +254,7 @@ func (h *CommentHandler) UserGetComments(c echo.Context) error {
 	}
 
 	comments, meta, err := h.cr.SearchComments(ctx, cq, user.ID)
-	fmt.Println("comments", comments)
 	if err != nil {
-		fmt.Println("error", err)
 		return fmt.Errorf("failed to search comments: %w", err)
 	}
 

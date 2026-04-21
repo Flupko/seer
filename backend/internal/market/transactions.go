@@ -59,7 +59,6 @@ func (tm *TransactionManager) AddBet(ctx context.Context, r BetRequest) (*Bet, e
 	}
 
 	if r.MinWantedGain.Cmp(&r.BetAmount.Big) <= 0 {
-		fmt.Println("invalid quoted gain:", r.MinWantedGain.String(), "bet amount:", r.BetAmount.String())
 		return nil, ErrInvalidQuotedGain
 	}
 
@@ -69,7 +68,7 @@ func (tm *TransactionManager) AddBet(ctx context.Context, r BetRequest) (*Bet, e
 		if err == nil {
 			// Push market update to redis
 			go func() {
-				if err := tm.PulishUpdateMarket(r.MarketID); err != nil {
+				if err := tm.PublishUpdateMarket(r.MarketID); err != nil {
 					tm.logger.Error("failed to publish market update", "error", err)
 				}
 
@@ -123,7 +122,7 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) (*Be
 		return nil, fmt.Errorf("failed to begin tx: %w", err)
 	}
 
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	// Retrieve the market's current state -> prices, fee etc
 	// -> We want to recompute the price
@@ -192,8 +191,6 @@ func (tm *TransactionManager) addBetOnce(ctx context.Context, r BetRequest) (*Be
 	}
 
 	if actualGain.Cmp(&r.MinWantedGain.Big) < 0 {
-		fmt.Println("invalid quoted gain")
-		fmt.Println("actual gain", actualGain.String(), "min wanted gain", r.MinWantedGain.String())
 		return nil, ErrInvalidQuotedGain
 	}
 
@@ -314,7 +311,7 @@ func (tm *TransactionManager) CashoutBet(ctx context.Context, r *CashoutRequest)
 		if err == nil {
 			// Push market update to redis
 			go func() {
-				if err := tm.PulishUpdateMarket(marketID); err != nil {
+				if err := tm.PublishUpdateMarket(marketID); err != nil {
 					tm.logger.Error("failed to publish market update", "error", err)
 				}
 
@@ -367,7 +364,7 @@ func (tm *TransactionManager) cashoutBetOnce(ctx context.Context, marketID uuid.
 		return nil, fmt.Errorf("failed to begin tx: %w", err)
 	}
 
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	var m Market
 	var outcomesIDs []int64
@@ -402,7 +399,6 @@ func (tm *TransactionManager) cashoutBetOnce(ctx context.Context, marketID uuid.
 
 	// Recompute cashout gain for the user
 	// cashedBet.Payout = number of shares bought
-	fmt.Println("CAP PRICE", m.CapPrice)
 	possible, cashoutGain, err := PossibleGainForSell(qVec, idx, cashedBet.Side == "y", m.Alpha, cashedBet.Payout, m.CapPrice)
 	if err != nil {
 		return nil, fmt.Errorf("failed to recompute cashout gain: %w", err)
@@ -411,8 +407,6 @@ func (tm *TransactionManager) cashoutBetOnce(ctx context.Context, marketID uuid.
 	if !possible {
 		return nil, ErrInvalidBetAmount
 	}
-
-	fmt.Println("CASHOUT GAIN:", cashoutGain.String())
 
 	if cashoutGain.Cmp(&r.MinWantedGain.Big) < 0 || cashoutGain.Sign() <= 0 {
 		return nil, ErrInvalidQuotedGain
@@ -475,7 +469,6 @@ func (tm *TransactionManager) cashoutBetOnce(ctx context.Context, marketID uuid.
 
 }
 
-// TODO -> settle market (takes an outcome, pay relevant shares)
 func (tm *TransactionManager) SettleMarket(ctx context.Context, marketID uuid.UUID, winningOutcomeID int64) error {
 
 	tx, err := tm.db.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.Serializable, AccessMode: pgx.ReadWrite})
@@ -483,7 +476,7 @@ func (tm *TransactionManager) SettleMarket(ctx context.Context, marketID uuid.UU
 		return fmt.Errorf("failed to begin tx: %w", err)
 	}
 
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	// Make sure the outcome is tied to this market
 	var outcomeMarketID uuid.UUID
@@ -562,6 +555,9 @@ func (tm *TransactionManager) SettleMarket(ctx context.Context, marketID uuid.UU
 		payouts = append(payouts, payout)
 	}
 
+	if rows.Err() != nil {
+		return fmt.Errorf("error iterating bets rows: %w", rows.Err())
+	}
 	rows.Close()
 
 	for _, p := range payouts {
@@ -570,10 +566,6 @@ func (tm *TransactionManager) SettleMarket(ctx context.Context, marketID uuid.UU
 		if err != nil {
 			return fmt.Errorf("failed to credit account %s: %w", p.ledgerAccountID, err)
 		}
-	}
-
-	if rows.Err() != nil {
-		return fmt.Errorf("error transactions bets rows: %w", rows.Err())
 	}
 
 	query = `UPDATE markets 
@@ -604,7 +596,7 @@ func (tm *TransactionManager) CancelMarket(ctx context.Context, marketID uuid.UU
 		return fmt.Errorf("failed to begin tx: %w", err)
 	}
 
-	defer tx.Rollback(ctx)
+	defer func() { _ = tx.Rollback(ctx) }()
 
 	var houseAccountID uuid.UUID
 	query := `SELECT house_ledger_account_id FROM markets
@@ -654,7 +646,7 @@ func (tm *TransactionManager) CancelMarket(ctx context.Context, marketID uuid.UU
 
 		err = rows.Scan(&ledgerAccountID, &refund)
 		if err != nil {
-			return fmt.Errorf("failed to scan")
+			return fmt.Errorf("failed to scan refund row: %w", err)
 		}
 
 		idemKey := fmt.Sprintf("settle:%s:%s", marketID, ledgerAccountID)
@@ -680,7 +672,7 @@ func (tm *TransactionManager) CancelMarket(ctx context.Context, marketID uuid.UU
 	return tx.Commit(ctx)
 }
 
-func (tm *TransactionManager) PulishUpdateMarket(marketID uuid.UUID) error {
+func (tm *TransactionManager) PublishUpdateMarket(marketID uuid.UUID) error {
 
 	updateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

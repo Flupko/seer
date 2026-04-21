@@ -60,12 +60,8 @@ func (h *MarketHandler) GetQuoteBet(c echo.Context) error {
 	gain, avgPrice, err := h.msm.GetQuoteForBet(ctx, q.BetAmount, q.MarketID, q.OutcomeID, q.Side)
 
 	if err != nil {
-		fmt.Println("get quote failed", err)
 		return mapErrorRepo(err)
 	}
-
-	fmt.Println("gain", gain, "avgPrice", avgPrice)
-	// fmt.Println("gain", gain.String(), "avgPrice", avgPrice.String())
 
 	return c.JSON(http.StatusOK, quoteRes{Gain: gain, AvgPrice: avgPrice})
 }
@@ -112,8 +108,6 @@ func (h *MarketHandler) GetPersonnalBets(c echo.Context) error {
 	user := utils.ContextGetUser(c)
 	ctx := c.Request().Context()
 
-	fmt.Println(r.Status)
-
 	bsq := &market.BetSearchQuery{
 		UserID:   &user.ID,
 		MarketID: r.MarketID,
@@ -126,7 +120,6 @@ func (h *MarketHandler) GetPersonnalBets(c echo.Context) error {
 
 	betsView, metadata, err := h.bm.SearchBets(ctx, bsq)
 	if err != nil {
-		fmt.Println("bets failed", err)
 		return fmt.Errorf("failed to get bets for user: %w", err)
 	}
 
@@ -328,12 +321,6 @@ func (h *MarketHandler) marketStateToUserRes(ctx context.Context, m *market.Mark
 
 	mr.TotalVolume = mState.Volume
 
-	prices, err := market.PricesBD(mState.QVec, m.Alpha)
-	if err != nil {
-		return nil, fmt.Errorf("failed to compute prices: %w", err)
-	}
-	fmt.Println("market prices:", prices)
-
 	// Attach quantities to outcomes
 	for _, o := range mr.Outcomes {
 		idx := slices.Index(mState.OutcomeIDs, o.ID)
@@ -376,7 +363,6 @@ func (h *MarketHandler) GetMarketsUser(c echo.Context) error {
 
 	marketsView, metadata, err := h.qm.SearchMarkets(ctx, msq, true)
 	if err != nil {
-		fmt.Println("market search failed", err)
 		return fmt.Errorf("failed to search markets: %w", err)
 	}
 
@@ -405,12 +391,9 @@ func (h *MarketHandler) GetMarketUser(c echo.Context) error {
 		return err
 	}
 
-	fmt.Println("Fetching market for id:", r.MarketID)
-
 	ctx := c.Request().Context()
 	m, err := h.qm.GetMarketByID(ctx, r.MarketID)
 	if err != nil {
-		fmt.Println("err", err)
 		return mapErrorRepo(err)
 	}
 

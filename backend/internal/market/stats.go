@@ -100,7 +100,7 @@ func (sm *StatManager) addMarketPriceHistory(payload string) error {
 		return fmt.Errorf("failed to begin tx: %w", err)
 	}
 
-	defer tx.Rollback(addCtx)
+	defer func() { _ = tx.Rollback(addCtx) }()
 
 	var alpha *numeric.BigDecimal
 	var q []*numeric.BigDecimal
