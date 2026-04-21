@@ -16,7 +16,7 @@ export default function MenuLogged() {
     const [menuClicked, setMenuClicked] = useState(false)
     const [menuHovering, setMenuHovering] = useState(false)
 
-    const wrapRef = useRef<HTMLLIElement | null>(null);
+    const wrapRef = useRef<HTMLDivElement | null>(null);
 
     const closeMenu = () => {
         setMenuClicked(false)

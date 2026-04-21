@@ -3,7 +3,7 @@ import { usePrefs } from "@/lib/stores/prefs";
 import { AnimatedOdds } from "@/ui/odds/AnimatedOdds";
 import NumberFlow from "@number-flow/react";
 import Decimal from "decimal.js";
-import { AreaData, AreaSeries, createChart, CrosshairMode, LineStyle, PriceScaleMode, Time } from "lightweight-charts";
+import { AreaData, AreaSeries, createChart, CrosshairMode, ISeriesApi, LineStyle, PriceScaleMode, Time } from "lightweight-charts";
 import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 
@@ -31,7 +31,7 @@ export default function PriceCharts({ outcomes }: { outcomes: Outcome[] }) {
     const [selectedPriceOutcome, setSelectedPriceOutcome] = useState<Record<string, Decimal> | null>(null);
     const [selectedDateFormatted, setSelectedDateFormatted] = useState<string>("");
 
-    const seriesRefs = useRef<Record<string, AreaSeries>>({});
+    const seriesRefs = useRef<Record<string, ISeriesApi<'Area'>>>({});
 
     const [selectedTimeframe, setSelectedTrimeframe] = useState<Timeframe>("24h");
 
@@ -115,29 +115,27 @@ export default function PriceCharts({ outcomes }: { outcomes: Outcome[] }) {
             chart.timeScale().applyOptions({
                 borderVisible: false,
                 timeVisible: true,
-                tickMarkFormatter: (time: Time) => {
-                    const date = new Date((time as number) * 1000);
-
-                    if (selectedTimeframe === '24h') {
-                        return date.toLocaleTimeString('en-US', {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                            hour12: false
-                        });
-                    }
-
-                    return date.toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric'
-                    });
-                },
                 rightOffset: 1,
             });
 
             chart.applyOptions({
                 localization: {
+                    timeFormatter: (time: number) => {
+                        const date = new Date(time * 1000);
+                        if (selectedTimeframe === '24h') {
+                            return date.toLocaleTimeString('en-US', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                                hour12: false
+                            });
+                        }
+                        return date.toLocaleDateString('en-US', {
+                            month: 'short',
+                            day: 'numeric'
+                        });
+                    },
                     priceFormatter: (price: number) => (price * 100).toFixed(1) + '%',
-                }
+                },
             });
 
             chart.timeScale().fitContent();

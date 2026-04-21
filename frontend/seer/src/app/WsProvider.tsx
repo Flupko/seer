@@ -46,8 +46,6 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
     useEffect(() => {
         const ws = getWSClient() // only runs in browser
 
-        console.log("WsProvider mounting, subscribing to ws events");
-
         ws.on("markets_update", (marketUpdate: MarketUpdate) => {
             qc.setQueryData(['market', marketUpdate.marketID], (oldMarket: MarketView | null) => {
                 if (!oldMarket) return oldMarket;
@@ -55,62 +53,52 @@ export function WsProvider({ children }: { children: React.ReactNode }) {
                     return oldMarket; // Ignore outdated update
                 }
 
-                // Update each outcome
-                for (const updatedOutcome of marketUpdate.outcomes) {
-                    const outcome = oldMarket.outcomes.find(o => o.id === updatedOutcome.id);
-                    if (outcome) {
-                        outcome.quantity = updatedOutcome.quantity;
-                    }
-                }
+                // Update each outcome immutably
+                const updatedOutcomes = oldMarket.outcomes.map(outcome => {
+                    const update = marketUpdate.outcomes.find(u => u.id === outcome.id);
+                    if (!update) return outcome;
+                    return { ...outcome, quantity: update.quantity };
+                });
 
-                pricesForMarket(oldMarket);
+                const updatedMarket = { ...oldMarket, outcomes: updatedOutcomes, totalVolume: marketUpdate.totalVolume };
+                pricesForMarket(updatedMarket);
 
-                // Update charts for each outcome
-                // Add new price point (replace last point if same timestamp)
+                // Update charts for each outcome immutably
                 const now = new Date();
-                for (const outcome of oldMarket.outcomes) {
-                    if (!outcome.priceCharts) continue;
-                    for (const priceChart of outcome.priceCharts) {
-                        // Depending on the chart interval, we compute current timestamp bucket
+                const outcomesWithCharts = updatedMarket.outcomes.map(outcome => {
+                    if (!outcome.priceCharts) return outcome;
+
+                    const updatedCharts = outcome.priceCharts.map(priceChart => {
                         let bucketDate = new Date();
                         switch (priceChart.timeframe) {
                             case '24h':
-                                // 5 minutes buckets
                                 bucketDate = new Date(Math.floor(now.getTime() / (5 * 60 * 1000)) * (5 * 60 * 1000));
                                 break;
-
                             case '7d':
-                                // 1h buckets
                                 bucketDate = new Date(Math.floor(now.getTime() / (60 * 60 * 1000)) * (60 * 60 * 1000));
                                 break;
-
                             case '30d':
-                                // 4h buckets
                                 bucketDate = new Date(Math.floor(now.getTime() / (4 * 60 * 60 * 1000)) * (4 * 60 * 60 * 1000));
                                 break;
                             case 'all':
-                                // 24h buckets
                                 bucketDate = new Date(Math.floor(now.getTime() / (24 * 60 * 60 * 1000)) * (24 * 60 * 60 * 1000));
                                 break;
-
                         }
 
-                        const lastPoint = priceChart.prices[priceChart.prices.length - 1];
-                        if (lastPoint.date.getTime() === bucketDate.getTime()) {
-                            // Replace last point
-                            lastPoint.price = outcome.priceYesNormalized;
+                        const prices = [...priceChart.prices];
+                        const lastPoint = prices[prices.length - 1];
+                        if (lastPoint && lastPoint.date.getTime() === bucketDate.getTime()) {
+                            prices[prices.length - 1] = { ...lastPoint, price: outcome.priceYesNormalized };
                         } else {
-                            // Add new point
-                            priceChart.prices.push({ timestamp: bucketDate.getTime(), date: bucketDate, price: outcome.priceYesNormalized });
+                            prices.push({ timestamp: bucketDate.getTime(), date: bucketDate, price: outcome.priceYesNormalized });
                         }
+                        return { ...priceChart, prices };
+                    });
 
-                    }
-                }
+                    return { ...outcome, priceCharts: updatedCharts };
+                });
 
-                // Update total volume
-                oldMarket.totalVolume = marketUpdate.totalVolume;
-
-                return { ...oldMarket, version: marketUpdate.marketVersion };
+                return { ...updatedMarket, outcomes: outcomesWithCharts, version: marketUpdate.marketVersion };
             });
         });
 

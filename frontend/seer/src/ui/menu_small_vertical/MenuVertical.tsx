@@ -25,8 +25,11 @@ export default function MenuVertical({
     menuWidth?: number;
 }) {
     const [open, setOpen] = useState(false);
+    const [mounted, setMounted] = useState(false);
     const buttonRef = useRef<HTMLButtonElement | null>(null);
     const [coords, setCoords] = useState({ top: 0, left: 0, width: 0 });
+
+    useEffect(() => { setMounted(true); }, []);
 
     const toggleMenu = () => {
         if (open) {
@@ -122,7 +125,7 @@ export default function MenuVertical({
                 </motion.span>
             </button>
 
-            {createPortal(
+            {mounted && createPortal(
                 <AnimatePresence>
                     {open && (
                         <motion.ul

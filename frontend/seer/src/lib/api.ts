@@ -300,11 +300,6 @@ export const searchMarket = async (search: MarketSearch) => {
 
   params.append("pageSize", search.pageSize.toString());
   params.append("page", search.page.toString());
-  if (search.status) {
-    params.append("status", search.status);
-  }
-
-  params.append("page", search.page.toString());
 
   const response = await fetch(`${API_BASE_URL}/market/search?${params.toString()}`, {
     credentials: "include",
@@ -324,12 +319,9 @@ export const searchMarket = async (search: MarketSearch) => {
   const result = MarketSearchResSchema.safeParse(data);
   if (!result.success) {
     console.error(result.error);
-    console.log("failed failed", result.error.issues)
     throw new Error("Invalid market search data");
   }
 
-  console.log("raw data", data.markets);
-  console.log("transformed data", result.data.markets);
   return result.data;
 
 }
@@ -353,7 +345,7 @@ export const getFeaturedCategories = async () => {
 
   const result = CategoriesResponseSchema.safeParse(data);
   if (!result.success) {
-    throw new Error("Invalid categories data", result.error);
+    throw new Error("Invalid categories data");
   }
 
   return result.data;
