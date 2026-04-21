@@ -1,21 +1,21 @@
 import { useWebSocket } from "@/app/WsProvider";
 import { getMarketById } from "@/lib/api";
-import { MarketView } from "@/lib/definitions"; // Import from your types file
+import { MarketView, Outcome } from "@/lib/definitions"; // Import from your types file
 import { useOdds } from "@/lib/hooks/useOdds";
+import { isMarketActive, isMarketPending } from "@/lib/markets";
 import { useModalStore } from "@/lib/stores/modal";
+import { CheckYes } from "@/ui/Checks";
 import { ArrowOdds } from "@/ui/odds/ArrowOdds";
 import TextFade from "@/ui/TextFade";
 import NumberFlow from "@number-flow/react";
 import { useQuery } from "@tanstack/react-query";
-import { Bookmark, CheckCircle2, CircleX } from "lucide-react";
+import { Bookmark, CheckCircle2, CircleX, ClockFading } from "lucide-react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 
-export default function MarketCardBis({ marketInitial }: { marketInitial: MarketView }) {
+export default function MarketCard({ marketInitial }: { marketInitial: MarketView }) {
 
-
-    const [showAllOutcomes, setShowAllOutcomes] = useState(false);
     const { oddsFormat } = useOdds();
 
     const openModal = useModalStore(state => state.openModal);
@@ -59,13 +59,10 @@ export default function MarketCardBis({ marketInitial }: { marketInitial: Market
 
     // Top 3 outcomes for main display
     const topOutcomes = sortedOutcomes.slice(0, 2);
-    const remainingOutcomes = sortedOutcomes.slice(3);
-
-    // Convert probPPM to formatted odds
 
     return (
         <div
-            className="rounded-lg py-4 h-[215px] bg-gray-800 border border-gray-700 px-4 transition-all duration-200 flex justify-between flex-col"
+            className="rounded-lg py-4 h-[215px] bg-gray-800 hover:backdrop-brightness-50 border border-gray-700 px-4 transition-all duration-200 flex justify-between flex-col"
         >
             {/* Header */}
             <div className="group hover:cursor-pointer">
@@ -123,7 +120,14 @@ export default function MarketCardBis({ marketInitial }: { marketInitial: Market
 
             {/* Odds Section */}
 
-            {!market.isBinary && (
+            {market.status === "resolved" && market.resolution && (
+                <WinningOutcome winningOutcome={market.outcomes.find(o => o.id === market.resolution!.winningOutcomeId)!} />
+
+            )}
+
+            {!market.isBinary && market.status !== "resolved" && (
+
+
                 <div className="flex flex-col gap-2.5">
                     {topOutcomes.map((outcome, idx) => {
 
@@ -134,7 +138,13 @@ export default function MarketCardBis({ marketInitial }: { marketInitial: Market
                                 className={`flex-1 flex justify-between
                                     ${market.status === 'active' && "cursor-pointer group"}
                                     ${market.status === "resolved" && market.resolution?.winningOutcomeId !== outcome.id && "brightness-40"}
-                                    transition-all duration-200`}
+                                    transition-all duration-200 pointer-events-auto`}
+                                onClick={() => {
+                                    console.log('open bet modal for outcome', outcome.id);
+                                    if (!isMarketActive(market)) return;
+
+                                    openModal('bet', { marketId: market.id, initialOutcomeId: outcome.id, initialSide: 'y' });
+                                }}
                             >
                                 <div className="text-sm text-start flex items-center gap-1.5 min-w-0 mr-2" >
                                     <div
@@ -167,14 +177,16 @@ export default function MarketCardBis({ marketInitial }: { marketInitial: Market
 
                                         <div className="flex items-center h-7.5 rounded-lg text-[13px] font-semibold bg-gradient-to-r from-yes/90 to-no/90 relative group-hover:brightness-110 active:scale-95 duration-100"  >
                                             <button className="text-center text-yes-text cursor-pointer pl-2.5 pr-4 h-7.5"
-                                                onClick={() => {
-                                                    if (market.status !== 'active') return;
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (!isMarketActive(market)) return;
                                                     openModal('bet', { marketId: market.id, initialOutcomeId: outcome.id, initialSide: 'y' });
                                                 }}>Yes</button>
 
                                             <button className="text-center text-no-text cursor-pointer pr-2.5 pl-4 h-7.5"
-                                                onClick={() => {
-                                                    if (market.status !== 'active') return;
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    if (!isMarketActive(market)) return;
                                                     openModal('bet', { marketId: market.id, initialOutcomeId: outcome.id, initialSide: 'n' });
                                                 }}>No</button>
                                             <span className="absolute text-gray-400 right-11">/</span>
@@ -188,15 +200,17 @@ export default function MarketCardBis({ marketInitial }: { marketInitial: Market
                             </div>
                         );
                     })}
-                </div>)}
+                </div>
+            )}
 
-            {market.isBinary && (
+            {market.isBinary && market.status !== "resolved" && (
                 <div className="flex gap-2">
-                    <button className={`flex w-full justify-center gap-3 items-center bg-yes hover:bg-yes-neon text-yes-text hover:text-white  rounded-md h-12 cursor-pointer active:scale-95 transition-all duration-100`}
+                    <button className={`flex w-full justify-center gap-3 items-center ${isMarketActive(market) ? "hover:text-white hover:bg-yes-neon hover:brightness-110 cursor-pointer active:scale-95" : "brightness-60"} bg-yes text-yes-text rounded-md h-12 transition-all duration-100`}
                         onClick={() => {
-                            if (market.status !== 'active') return;
+                            if (!isMarketActive(market)) return;
                             openModal('bet', { marketId: market.id, initialOutcomeId: market.outcomes[0].id, initialSide: 'y' });
-                        }}>
+                        }}
+                        disabled={!isMarketActive(market)}>
                         <span className="flex items-baseline gap-2">
                             <span className="font-medium text-[15px] line-clamp-1 break-all">{market.outcomes[0].name}</span>
                             <span className="font-bold text-[17px]"><ArrowOdds
@@ -207,13 +221,12 @@ export default function MarketCardBis({ marketInitial }: { marketInitial: Market
                         </span>
                     </button>
 
-                    {/* #0080c0 */}
-                    {/* #8040c0 */}
-                    <button className={`flex w-full justify-center gap-3 items-center bg-no hover:bg-no-neon text-no-text hover:text-white hover:brightness-110 rounded-md h-12 cursor-pointer active:scale-95 transition-all duration-100`}
+                    <button className={`flex w-full justify-center gap-3 items-center ${isMarketActive(market) ? "hover:text-white hover:bg-no-neon hover:brightness-110 cursor-pointer active:scale-95" : "brightness-60"} bg-no text-no-text rounded-md h-12 transition-all duration-100`}
                         onClick={() => {
-                            if (market.status !== 'active') return;
+                            if (!isMarketActive(market)) return;
                             openModal('bet', { marketId: market.id, initialOutcomeId: market.outcomes[1].id, initialSide: 'y' });
-                        }}>
+                        }}
+                        disabled={!isMarketActive(market)}>
                         <span className="flex items-baseline gap-2">
                             <span className="font-medium text-[15px]">{market.outcomes[1].name}</span>
                             <span className="font-bold text-[17px]"><ArrowOdds
@@ -225,17 +238,16 @@ export default function MarketCardBis({ marketInitial }: { marketInitial: Market
                     </button>
 
                 </div >
-            )
-            }
+            )}
 
 
 
 
             <div className="flex justify-between items-center font-normal">
 
-                <div className="flex items-center gap-2 text-[13px] font-medium">
+                <div className="flex items-center gap-3 text-[13px] font-medium">
                     {market.totalVolume && (
-                        <div className="flex gap-1.5 text-gray-400 items-center">
+                        <div className="flex gap-3 text-gray-400 items-center">
                             <span className="flex gap-1 items-center">
 
                                 <NumberFlow locales={"en-US"}
@@ -246,6 +258,15 @@ export default function MarketCardBis({ marketInitial }: { marketInitial: Market
                                 <span>
                                     Vol.
                                 </span>
+                            </span>
+                        </div>
+                    )}
+
+                    {isMarketPending(market) && (
+                        <div className="flex gap-1.5 text-gray-400 items-center rounded-full bg-gray-700/60 px-2.5 h-6">
+                            <ClockFading className="w-3 h-3" />
+                            <span className="font-medium">
+                                Pending
                             </span>
                         </div>
                     )}
@@ -264,5 +285,20 @@ export default function MarketCardBis({ marketInitial }: { marketInitial: Market
         </div >
     );
 }
+
+function WinningOutcome({ winningOutcome }: { winningOutcome: Outcome }) {
+    return (
+        <div className="flex w-full justify-center gap-3 items-center bg-gray-700  rounded-md h-12 transition-all duration-100">
+            <span className="flex items-baseline gap-2">
+                <span className="font-bold text-[15px] line-clamp-1 break-all">
+                    {winningOutcome.name}
+                </span>
+                <CheckYes size="w-2.5 h-2.5" className="text-gray-700 bg-success" />
+            </span>
+        </div>
+    )
+}
+
+
 
 

@@ -234,12 +234,13 @@ export const MarketViewSchema = z.object({
   outcomes: z.array(OutcomeSchema),
   status: MarketStatus,
   resolution: MarketResolutionSchema.optional(),
+  isActive: z.function().optional(),
   version: z.number().int().default(0),
 }).transform((market) => {
   // Compute prices for each outcome
   market.isBinary = market.outcomes.length === 2;
   pricesForMarket(market);
-  return market
+  return market;
 });
 
 

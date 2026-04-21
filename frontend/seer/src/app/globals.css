@@ -34,12 +34,14 @@ body {
   --color-yes: #2d4a73;
   --color-yes-neon: #2060e0;
 
-  --color-no-text: #ff40c0;
-  --color-no: #563a58;
-  --color-no-neon: #c02060;
+  --color-no-text: #ff4053;
+  --color-no: #583a44;
+  --color-no-neon: #c02038;
+
 
   --color-error: #f1323e;
-  --color-success: #3dd179;
+  --color-success: #3dd179; 
+
 
   --primary-blue-filter: brightness(0) saturate(100%) invert(59%) sepia(92%) saturate(2319%) hue-rotate(167deg) brightness(96%) contrast(86%);
 

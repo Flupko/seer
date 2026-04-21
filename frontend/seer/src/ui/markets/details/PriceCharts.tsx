@@ -4,6 +4,7 @@ import { AnimatedOdds } from "@/ui/odds/AnimatedOdds";
 import NumberFlow from "@number-flow/react";
 import Decimal from "decimal.js";
 import { AreaData, AreaSeries, createChart, CrosshairMode, LineStyle, PriceScaleMode, Time } from "lightweight-charts";
+import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 
 const colorsOutcomes = [
@@ -275,11 +276,34 @@ export default function PriceCharts({ outcomes }: { outcomes: Outcome[] }) {
 
             {/* Change timeframe */}
             <div className="flex gap-2 mt-5">
-                {timeframes.map((t) =>
-                    <button key={t} className={`w-12 py-2 rounded-md font-bold text-sm ${selectedTimeframe === t ? "bg-primary-blue" : "hover:bg-gray-800 active:scale-90 active:brightness-90 cursor-pointer text-gray-300"} duration-200`} onClick={() => setSelectedTrimeframe(t)}>{t.toUpperCase()}</button>
-                )}
+                {timeframes.map((t) => {
+                    const isActive = selectedTimeframe === t;
+
+                    return (
+                        <button
+                            key={t}
+                            onClick={() => setSelectedTrimeframe(t)}
+                            className={`${isActive ? "" : "hover:bg-gray-800 text-gray-300 cursor-pointer"
+                                } relative w-12 py-1.5 rounded-md text-sm font-bold transition-colors delay-100`}
+                        >
+                            {/* Sliding Background */}
+                            {isActive && (
+                                <motion.div
+                                    layoutId="active-pill"
+                                    className="absolute inset-0 bg-primary-blue rounded-md"
+                                    transition={{ ease: "easeInOut", duration: 0.2 }}
+                                />
+                            )}
+
+                            {/* Text (Must be relative and z-10 to sit on top) */}
+                            <span className="relative z-10 mix-blend-normal">
+                                {t.toUpperCase()}
+                            </span>
+                        </button>
+                    );
+                })}
             </div>
 
-        </div>
+        </div >
     )
 }

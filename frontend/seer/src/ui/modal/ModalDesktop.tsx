@@ -57,7 +57,7 @@ export default function ModalDesktop() {
                                         {/* Center horizontally with mx-auto, no items-center */}
                                         <motion.div
 
-                                            className={`bg-grayscale-black  w-full ${height} rounded-2xl relative mx-auto`}
+                                            className={`bg-grayscale-black  w-full ${height} rounded-2xl relative mx-auto border border-gray-800`}
                                         >
 
                                             {ModalContent && <ModalContent {...modalData} ref={closeRef} />}

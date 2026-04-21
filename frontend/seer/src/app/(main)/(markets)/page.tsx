@@ -5,7 +5,7 @@ import { MarketSearchSchema, sortOptions, statusOptions } from "@/lib/definition
 import { redirect } from "next/navigation";
 import MarketsHome from "./markets";
 
-export default async function HomePage({ searchParams }: { searchParams: Promise<{ category?: string, sort?: string, status?: string }> }) {
+export default async function HomePage({ searchParams }: { searchParams: Promise<{ category?: string, sort?: string, status?: string, q?: string }> }) {
 
   const categories = await getFeaturedCategories();
   const sp = await searchParams;
@@ -13,6 +13,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
   const categorySlug = sp.category ?? categories[0].slug;
   const sort = sp.sort;
   const status = sp.status;
+  const query = sp.q;
 
   const category = categories.find(c => c.slug === categorySlug);
   const sortValid = !sort || sortOptions.some(o => o.value === sort);
@@ -25,6 +26,7 @@ export default async function HomePage({ searchParams }: { searchParams: Promise
   const parsed = MarketSearchSchema.safeParse({
     categorySlug,
     sort,
+    query,
     status,
     pageSize: 8,
     page: 1,

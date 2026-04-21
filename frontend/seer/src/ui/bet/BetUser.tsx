@@ -3,6 +3,7 @@ import { Bet } from "@/lib/definitions";
 import { possiblePayoutDeltaForCashout } from "@/lib/lslmsr/lslmsr";
 import NumberFlow from "@number-flow/react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/dist/client/link";
 import Image from "next/image";
 import { useRef, useState } from "react";
 import Button from "../Button";
@@ -63,19 +64,21 @@ export default function BetUser({ bet }: { bet: Bet }) {
 
                 <div className="flex-2 flex items-center gap-4">
                     {market.imgKey && (
-                        <div className="flex-shrink-0 w-12 h-12 rounded-md overflow-hidden">
-                            <Image
-                                src={market.imgKey}
-                                alt={market.name}
-                                width={250}
-                                height={250}
-                                className="object-cover w-full h-full"
-                            />
-                        </div>)}
+                        <Link href={`/market/${market.id}`}>
+                            <div className="flex-shrink-0 w-12 h-12 rounded-md overflow-hidden">
+                                <Image
+                                    src={market.imgKey}
+                                    alt={market.name}
+                                    width={250}
+                                    height={250}
+                                    className="object-cover w-full h-full"
+                                />
+                            </div>
+                        </Link>)}
                     <div className="flex flex-col gap-1.5 text-sm">
-                        <h2 className="text-sm font-medium h-fit leading-5.5 line-clamp-1 text-ellipsis break-all">
+                        <Link href={`/market/${market.id}`} className="text-sm font-medium h-fit leading-5.5 line-clamp-1 text-ellipsis break-all hover:text-gray-400 transition-all">
                             {market?.name}
-                        </h2>
+                        </Link>
                         <div className="flex items-center">
 
                             {!market?.isBinary && (<>

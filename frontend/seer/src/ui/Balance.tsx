@@ -20,7 +20,7 @@ export default function Balance({ currency, ...rest }: { currency: Currency } & 
                 </span>
             </div>
 
-            <div className="flex justify-center lg:w-23.5 w-12 shrink-0">
+            <div className="hidden lg:flex justify-center lg:w-23.5 w-12 shrink-0">
                 <button
                     className="bg-primary-blue px-4 font-bold rounded-md h-9 text-[13px] shrink-0 hover:brightness-120 hover:cursor-pointer transition-all active:scale-95 duration-150">
                     Deposit

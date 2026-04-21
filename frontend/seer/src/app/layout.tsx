@@ -86,7 +86,7 @@ const inter = Inter({
   subsets: ['latin'],
   variable: '--font-sans',
   display: 'swap',
-  weight: ['400', '500', '600', '700', '800'],
+  weight: ["400", "500", "600", "700", '800'],
 })
 
 
@@ -123,7 +123,7 @@ export default async function RootLayout({
         <meta name="theme-color" content="#080808"></meta>
       </head>
 
-      <body className={`${aeonik.className} antialiased`}>
+      <body className={`${inter.className} antialiased`}>
         <ReactQueryProvider>
           <ReactQueryDevtools initialIsOpen={false} />
           <WsProvider>

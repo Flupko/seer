@@ -1,6 +1,7 @@
 import { cashoutBet, getMarketById } from "@/lib/api";
 import { Bet, MarketView, UserBetSearch } from "@/lib/definitions";
 import { possiblePayoutDeltaForCashout } from "@/lib/lslmsr/lslmsr";
+import { isMarketActive } from "@/lib/markets";
 import { useBetsQuery } from "@/lib/queries/useBetsQuery";
 import { useUserQuery } from "@/lib/queries/useUserQuery";
 import Button from "@/ui/Button";
@@ -148,6 +149,8 @@ export function BetCard({ bet }: { bet: Bet }) {
 
     const [possible, deltaProp, payout] = market ? possiblePayoutDeltaForCashout(market, bet) : [null, null, null];
 
+    if (!market) return null;
+
     return (
         <>
             <div className="hidden md:flex items-center justify-between bg-gray-800/50 px-4 py-2 rounded-lg">
@@ -190,7 +193,18 @@ export function BetCard({ bet }: { bet: Bet }) {
                         </div>
 
                         <div className="w-23">
-                            <Button isLoading={isPending} disabled={isPending || !possible} bg={cashoutClicked ? "bg-primary-blue" : "bg-transparent"} width="full" className="border-primary-blue border" height="small" onClick={() => cashoutClicked ? handleCashout() : setCashoutClicked(true)}>
+                            <Button isLoading={isPending}
+                                disabled={!isMarketActive(market) || !possible}
+                                bg={cashoutClicked ? "bg-primary-blue" : "bg-transparent"}
+                                width="full"
+                                className="border-primary-blue border h-8 flex gap-3" height="small"
+                                onClick={() => {
+                                    console.log(isMarketActive(market));
+                                    if (!isMarketActive(market)) return;
+                                    cashoutClicked ? handleCashout() : setCashoutClicked(true)
+                                }}
+                            >
+
                                 <span className={`text-sm font-bold ${cashoutClicked ? 'text-gray-200' : 'text-primary-blue'}`}>
                                     Cashout
                                 </span>
@@ -243,7 +257,18 @@ export function BetCard({ bet }: { bet: Bet }) {
                 </div>
 
                 <div className="w-full">
-                    <Button isLoading={isPending} disabled={isPending || !possible} bg={cashoutClicked ? "bg-primary-blue" : "bg-transparent"} width="full" className="border-primary-blue border h-8 flex gap-3" height="small" onClick={() => cashoutClicked ? handleCashout() : setCashoutClicked(true)}>
+                    <Button isLoading={isPending}
+                        disabled={!isMarketActive(market) || !possible}
+                        bg={cashoutClicked ? "bg-primary-blue" : "bg-transparent"}
+                        width="full"
+                        className="border-primary-blue border h-8 flex gap-3" height="small"
+                        onClick={() => {
+                            console.log(isMarketActive(market));
+                            if (!isMarketActive(market)) return;
+                            cashoutClicked ? handleCashout() : setCashoutClicked(true)
+                        }}
+                    >
+
                         <span className={`text-sm font-bold ${cashoutClicked ? 'text-gray-200' : 'text-primary-blue'}`}>
                             Cashout
                         </span>

@@ -31,7 +31,7 @@ export default function MarketsHome({ search, activeCategory }: { search: Market
 
     console.log(markets);
     return (
-        <div className="pt-3 lg:pt-6 transition-all">
+        <div className="pt-4 lg:pt-6 transition-all">
             <Header activeCategory={activeCategory} />
             <MarketsDisplay markets={markets} {...{ isLoading, fetchNextPage, isFetchingNextPage, hasNextPage }} />
         </div>

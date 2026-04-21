@@ -22,7 +22,7 @@ export default function Navbar() {
                         <Link href="/" className="select-none cursor-pointer contents" scroll={false}>
                             <h1 className="text-[26px] font-bold text-primary-blue justify-self-start">Seer</h1>
                         </Link>
-                        <div className="flex gap-6 items-center mt-1">
+                        <div className="gap-6 items-center mt-1 hidden lg:flex">
                             <Link href="/markets" className="text-[13px] text-white hover:text-primary-blue transition-all duration-150 font-medium">Markets</Link>
                             <Link href="/leaderboard" className="text-[13px] text-white hover:text-primary-blue transition-all duration-150 font-medium">Leaderboard</Link>
                         </div>

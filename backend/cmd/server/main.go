@@ -98,6 +98,8 @@ func main() {
 	betLiveManager := market.NewBetLiveManager(context.TODO(), rdb, db, logger)
 	statsManager := market.NewStatManager(context.TODO(), rdb, db, logger)
 	statsManager.Start(context.TODO())
+	volumeCalculator := market.NewVolumeCalculator(db, logger, 10*time.Minute)
+	volumeCalculator.Start(context.TODO())
 
 	if err = betLiveManager.PrepopulateLatestBets(initCtx); err != nil {
 		logger.Error("failed to prepopulate latest bets", "error", err)

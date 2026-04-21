@@ -27,6 +27,10 @@ func NewVolumeCalculator(db *pgxpool.Pool, logger *slog.Logger, interval time.Du
 }
 
 func (vc *VolumeCalculator) Start(ctx context.Context) {
+	go vc.start(ctx)
+}
+
+func (vc *VolumeCalculator) start(ctx context.Context) {
 
 	ticker := time.NewTicker(vc.updateInterval)
 	defer ticker.Stop()
@@ -56,7 +60,7 @@ func (vc *VolumeCalculator) updateVolume24h(ctx context.Context) error {
 	query := `UPDATE markets m
 	SET volume_24h = (
 		SELECT COALESCE(SUM(b.total_price_paid), 0)
-		FROM bets tb
+		FROM bets b
 		JOIN outcomes o ON b.outcome_id = o.id 
 		WHERE o.market_id = m.id 
 		AND b.placed_at >= NOW() - INTERVAL '24 hours'

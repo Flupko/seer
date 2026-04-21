@@ -78,7 +78,7 @@ export function PriceChartDrawer({ data, side }: { data: PriceChartDataPoint[], 
                 priceLineVisible: false,
                 topColor: primaryBlue + '2D',
                 bottomColor: primaryBlue + '00',
-                lineWidth: 1.5 as DeepPartial<LineWidth>,
+                lineWidth: 2 as DeepPartial<LineWidth>,
                 lineStyle: LineStyle.Solid,
             });
 
@@ -166,7 +166,7 @@ export function PriceChartDrawer({ data, side }: { data: PriceChartDataPoint[], 
                 <p className="text-xs text-gray-200">
                     {selectedDateFormatted}
                 </p>
-                <p className="text-lg font-semibold text-primary-blue">
+                <p className="text-lg font-bold text-primary-blue">
                     <AnimatedOdds prob={priceTooltip} format="percent" />
                 </p>
             </div>

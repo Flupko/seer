@@ -31,7 +31,7 @@ export default function Button({
   const heightClasses = {
     extraSmall: "h-9",
     small: "h-11",
-    large: "h-13.5",
+    large: "h-13",
   };
 
   const isDisabled = isLoading || disabled;
@@ -60,11 +60,11 @@ export default function Button({
         active:scale-95 
         active:brightness-80
         
-        disabled:opacity-50
-        disabled:hover:brightness-100
+        disabled:brightness-50
+        disabled:hover:brightness-50
         disabled:active:scale-100
 
-        ${!isDisabled ? "cursor-pointer" : ""}
+        enabled:cursor-pointer
         ${className || ""}
       `}
       onClick={onClick}

@@ -42,7 +42,7 @@ export default function MenuLogged() {
     }, []);
 
     return (
-        <li
+        <div
             ref={wrapRef}
             className="relative"
             onMouseEnter={() => setMenuHovering(true)}
@@ -77,7 +77,7 @@ export default function MenuLogged() {
                     </div>
                 )}
             </AnimatePresence>
-        </li>
+        </div>
     )
 }
 
